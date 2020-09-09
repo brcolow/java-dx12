@@ -1,8 +1,31 @@
+## Panama Dev Jorn Vernee jextract
+
+```powershell
+$jdk = <path to built jdk>
+nal -Name jextract -Value "$jdk\bin\jextract.exe"
+$I = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.18362.0"
+jextract -d out -t org.jextract -I "$I\um" --filter "d3d12.h" -- "$I\um\d3d12.h"
+```
+
 ## Current Status
 
 Failing with error:
 
 java.lang.RuntimeException: C:\Program Files (x86)\Windows Kits\10\Include\10.0.17763.0\um/d3d12sdklayers.h:2730:15: error: unknown type name 'D3D12_MESSAGE_ID_GPU_BASED_VALIDATION_UNSUPPORTED'
+
+## Building Project Panama
+
+From WSL:
+
+Download pre-built LLVM binaries (version 10.0.0 used below) https://releases.llvm.org/download.html and install to `C:\` (spaces in path is an issue).
+
+Make sure autoconf, zip (via sudo apt-get).
+
+```sh
+bash configure --with-boot-jdk="/mnt/c/Program Files/Java/jdk-14" --with-libclang="/mnt/c/Program Files/LLVM" --with-clang-version=10.0.0
+make
+```
+
 
 ## jextract Arguments
 
