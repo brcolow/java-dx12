@@ -24,6 +24,7 @@ public class DX12 {
     public static void main(String[] args) {
         LibraryLookup d3d12 = LibraryLookup.ofLibrary("D3D12");
         LibraryLookup dxgi = LibraryLookup.ofLibrary("dxgi");
+        // Can replace this with dxgi_h$constants$0.IID_IDXGIFactory$LAYOUT() but not sure how set in stone that syntax is.
         MemoryLayout IID_IDXGIFactory_GUID = MemoryLayout.ofStruct(
             C_INT.withName("Data1"),
             C_SHORT.withName("Data2"),
@@ -36,6 +37,7 @@ public class DX12 {
         VarHandle data4 = IID_IDXGIFactory_GUID.varHandle(byte.class, groupElement("Data4"), MemoryLayout.PathElement.sequenceElement());
         MemorySegment segment = MemorySegment.allocateNative(
                 IID_IDXGIFactory_GUID.map(l -> ((SequenceLayout)l).withElementCount(8), MemoryLayout.PathElement.groupElement("Data4")));
+        // Need to set this as: 0x770aae78, 0xf26f, 0x4dba, 0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87 (Thanks, dxgi-rs!)
         data1.set(segment, 0x770aae78);
         data2.set(segment, (short) 0xf26f);
         data3.set(segment, (short) 0x4dba);
@@ -47,16 +49,12 @@ public class DX12 {
         data4.set(segment, 5, (byte) 0xd1);
         data4.set(segment, 6, (byte) 0xb3);
         data4.set(segment, 7, (byte) 0x87);
-        // Need to set this as: 0x770aae78, 0xf26f, 0x4dba, 0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87
         try (var scope = NativeScope.unboundedScope()) {
             var factory = scope.allocate(C_POINTER);
+            // https://docs.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-createdxgifactory1
             int hresult = dxgi_h.CreateDXGIFactory1(segment, factory);
             System.out.println("hresult: " + hresult);
             System.out.println("factory: " + factory);
-            //System.out.println("factory: " + factory);
-            // https://docs.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-createdxgifactory1
-            // Now we need to call dxgi_h.CreateDXGIFactory1(UUID(factory), factory)
-            // The somewhat tricky part is being able to get the UUID.
             // https://docs.microsoft.com/en-us/windows/win32/api/guiddef/ns-guiddef-guid
             // https://github.com/bryal/dxgi-rs/blob/d319030ad095cda42e3d46ac3eb9ebddd6e73b48/src/constants.rs#L77
         }
