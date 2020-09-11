@@ -14,6 +14,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.invoke.VarHandle;
+import java.util.Map;
 
 import static jdk.incubator.foreign.CSupport.*;
 import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
@@ -21,40 +22,90 @@ import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
 * https://cr.openjdk.java.net/~mcimadamore/panama/ffi.html#appendix-full-source-code
 */
 public class DX12 {
+
+    public enum IID {
+        IID_IDXGIAdapter1,
+        IID_IDXGIFactory1
+    }
+
+    public static MemorySegment GUID(IID iid) {
+        return GUID_MAP.get(iid);
+    }
+
+    private static final Map<IID, MemorySegment> GUID_MAP = Map.of(
+            IID.IID_IDXGIAdapter1,
+            GUID(0x29038f61, 0x3839, 0x4626, new int[]{0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87}),
+            IID.IID_IDXGIFactory1,
+            GUID(0x770aae78, 0xf26f, 0x4dba, new int[]{0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05}));
+
+    public static MemorySegment GUID(int data1, int data2, int data3, int[] data4) {
+        MemoryLayout GUID = MemoryLayout.ofStruct(
+                C_INT.withName("Data1"),
+                C_SHORT.withName("Data2"),
+                C_SHORT.withName("Data3"),
+                MemoryLayout.ofSequence(8, C_BOOL).withName("Data4")
+        ).withName("_GUID");
+        VarHandle data1Handle = GUID.varHandle(int.class, groupElement("Data1"));
+        VarHandle data2Handle = GUID.varHandle(short.class, groupElement("Data2"));
+        VarHandle data3Handle = GUID.varHandle(short.class, groupElement("Data3"));
+        VarHandle data4Handle = GUID.varHandle(byte.class, groupElement("Data4"),
+                MemoryLayout.PathElement.sequenceElement());
+        MemorySegment segment = MemorySegment.allocateNative(GUID.map(l -> ((SequenceLayout) l).withElementCount(8),
+                MemoryLayout.PathElement.groupElement("Data4")));
+        data1Handle.set(segment, data1);
+        data2Handle.set(segment, (short) data2);
+        data3Handle.set(segment, (short) data3);
+        for (int i = 0; i < 8; i++) {
+            data4Handle.set(segment, i, (byte) data4[i]);
+        }
+        return segment;
+    }
+
+    // https://docs.microsoft.com/en-us/windows/win32/direct3d12/creating-a-basic-direct3d-12-component
     public static void main(String[] args) {
         LibraryLookup d3d12 = LibraryLookup.ofLibrary("D3D12");
         LibraryLookup dxgi = LibraryLookup.ofLibrary("dxgi");
-        // Can replace this with dxgi_h$constants$0.IID_IDXGIFactory$LAYOUT() but not sure how set in stone that syntax is.
-        MemoryLayout IID_IDXGIFactory_GUID = MemoryLayout.ofStruct(
-            C_INT.withName("Data1"),
-            C_SHORT.withName("Data2"),
-            C_SHORT.withName("Data3"),
-            MemoryLayout.ofSequence(8, C_BOOL).withName("Data4")
-        ).withName("_GUID");
-        VarHandle data1 = IID_IDXGIFactory_GUID.varHandle(int.class, groupElement("Data1"));
-        VarHandle data2 = IID_IDXGIFactory_GUID.varHandle(short.class, groupElement("Data2"));
-        VarHandle data3 = IID_IDXGIFactory_GUID.varHandle(short.class, groupElement("Data3"));
-        VarHandle data4 = IID_IDXGIFactory_GUID.varHandle(byte.class, groupElement("Data4"), MemoryLayout.PathElement.sequenceElement());
-        MemorySegment segment = MemorySegment.allocateNative(
-                IID_IDXGIFactory_GUID.map(l -> ((SequenceLayout)l).withElementCount(8), MemoryLayout.PathElement.groupElement("Data4")));
-        // Need to set this as: 0x770aae78, 0xf26f, 0x4dba, 0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87 (Thanks, dxgi-rs!)
-        data1.set(segment, 0x770aae78);
-        data2.set(segment, (short) 0xf26f);
-        data3.set(segment, (short) 0x4dba);
-        data4.set(segment, 0, (byte) 0xa8);
-        data4.set(segment, 1, (byte) 0x29);
-        data4.set(segment, 2, (byte) 0x25);
-        data4.set(segment, 3, (byte) 0x3c);
-        data4.set(segment, 4, (byte) 0x83);
-        data4.set(segment, 5, (byte) 0xd1);
-        data4.set(segment, 6, (byte) 0xb3);
-        data4.set(segment, 7, (byte) 0x87);
         try (var scope = NativeScope.unboundedScope()) {
-            var factory = scope.allocate(C_POINTER);
+            var dxgiFactory = scope.allocate(C_POINTER);
             // https://docs.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-createdxgifactory1
-            int hresult = dxgi_h.CreateDXGIFactory1(segment, factory);
+            int hresult = dxgi_h.CreateDXGIFactory1(GUID(IID.IID_IDXGIFactory1), dxgiFactory);
             System.out.println("hresult: " + hresult);
-            System.out.println("factory: " + factory);
+            System.out.println("factory: " + dxgiFactory);
+            var dxgiAdapter = scope.allocate(C_POINTER);
+            // Now we need to implement and call the following:
+            /*
+            void GetHardwareAdapter(IDXGIFactory4* pFactory, IDXGIAdapter1** ppAdapter)
+            {
+                *ppAdapter = nullptr;
+                for (UINT adapterIndex = 0; ; ++adapterIndex)
+                {
+                    IDXGIAdapter1* pAdapter = nullptr;
+                    if (DXGI_ERROR_NOT_FOUND == pFactory->EnumAdapters1(adapterIndex, &pAdapter))
+                    {
+                        // No more adapters to enumerate.
+                        break;
+                    }
+
+                    // Check to see if the adapter supports Direct3D 12, but don't create the
+                    // actual device yet.
+                    if (SUCCEEDED(D3D12CreateDevice(pAdapter, D3D_FEATURE_LEVEL_11_0, _uuidof(ID3D12Device), nullptr)))
+                    {
+                        *ppAdapter = pAdapter;
+                        return;
+                    }
+                    pAdapter->Release();
+                }
+            }
+             */
+            //for (int adapterIndex = 0; ; adapterIndex++) {
+                // WRONG: dxgiFactory.EnumAdapters1(adapterIndex, dxgiAdapter);
+                // dxgiFactory->EnumAdapters1(adapterIndex, &dxgiAdapter)
+            //}
+            //getSystemLinker().downcallHandle(dxgi_h.IDXGIFactory1Vtbl.EnumAdapters1$VH()
+            // ComPtr<IDXGIAdapter1> hardwareAdapter;
+            // define_guid!(IID_IDXGIAdapter1,0x29038f61, 0x3839, 0x4626, 0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05);
+            // GetHardwareAdapter(factory.Get(), &hardwareAdapter);
+            // D3D12CreateDevice(hardwareAdapter.Get(),D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&m_device))
             // https://docs.microsoft.com/en-us/windows/win32/api/guiddef/ns-guiddef-guid
             // https://github.com/bryal/dxgi-rs/blob/d319030ad095cda42e3d46ac3eb9ebddd6e73b48/src/constants.rs#L77
         }
