@@ -16,6 +16,9 @@ import java.lang.invoke.MethodType;
 import java.lang.invoke.VarHandle;
 import java.util.Map;
 
+import static com.dx12.dxgi_h.IDXGIFactory1Vtbl.EnumAdapters1$VH;
+import static com.dx12.dxgi_h.IDXGIFactory1Vtbl.EnumAdapters1$get;
+import static com.dx12.dxgi_h.IDXGIFactory1Vtbl.EnumAdapters1$set;
 import static jdk.incubator.foreign.CSupport.*;
 import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
 /**
@@ -33,10 +36,12 @@ public class DX12 {
     }
 
     private static final Map<IID, MemorySegment> GUID_MAP = Map.of(
-            IID.IID_IDXGIAdapter1,
-            GUID(0x29038f61, 0x3839, 0x4626, new int[]{0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87}),
             IID.IID_IDXGIFactory1,
-            GUID(0x770aae78, 0xf26f, 0x4dba, new int[]{0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05}));
+            //   0x770aae78, 0xf26f, 0x4dba,           0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87
+            GUID(0x770aae78, 0xf26f, 0x4dba, new int[]{0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87}),
+            IID.IID_IDXGIAdapter1,
+            //   0x29038f61, 0x3839, 0x4626,           0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05
+            GUID(0x29038f61, 0x3839, 0x4626, new int[]{0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05}));
 
     public static MemorySegment GUID(int data1, int data2, int data3, int[] data4) {
         MemoryLayout GUID = MemoryLayout.ofStruct(
@@ -66,12 +71,14 @@ public class DX12 {
         LibraryLookup d3d12 = LibraryLookup.ofLibrary("D3D12");
         LibraryLookup dxgi = LibraryLookup.ofLibrary("dxgi");
         try (var scope = NativeScope.unboundedScope()) {
+            // IDXGIFactory1* dxgiFactory;
             var dxgiFactory = scope.allocate(C_POINTER);
             // https://docs.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-createdxgifactory1
             int hresult = dxgi_h.CreateDXGIFactory1(GUID(IID.IID_IDXGIFactory1), dxgiFactory);
             System.out.println("hresult: " + hresult);
             System.out.println("factory: " + dxgiFactory);
             var dxgiAdapter = scope.allocate(C_POINTER);
+            //EnumAdapters1$set(dxgiFactory, MemoryAddress.NULL);
             // Now we need to implement and call the following:
             /*
             void GetHardwareAdapter(IDXGIFactory4* pFactory, IDXGIAdapter1** ppAdapter)
@@ -80,7 +87,7 @@ public class DX12 {
                 for (UINT adapterIndex = 0; ; ++adapterIndex)
                 {
                     IDXGIAdapter1* pAdapter = nullptr;
-                    if (DXGI_ERROR_NOT_FOUND == pFactory->EnumAdapters1(adapterIndex, &pAdapter))
+                    if (DXGI_ERROR_NOT_FOUND == dxgiFactory->EnumAdapters1(adapterIndex, &pAdapter))
                     {
                         // No more adapters to enumerate.
                         break;
