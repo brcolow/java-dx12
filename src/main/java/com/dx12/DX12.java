@@ -3,11 +3,13 @@ package com.dx12;
 import com.dx12.d3d12_h;
 import com.dx12.dxgi_h;
 import com.dx12.dxgi_h$constants$0;
+import jdk.incubator.foreign.FunctionDescriptor;
 import jdk.incubator.foreign.MemoryAddress;
 import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.LibraryLookup;
 import jdk.incubator.foreign.NativeScope;
+import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemoryHandles;
 import jdk.incubator.foreign.SequenceLayout;
 import java.lang.invoke.MethodHandle;
@@ -71,14 +73,27 @@ public class DX12 {
         LibraryLookup d3d12 = LibraryLookup.ofLibrary("D3D12");
         LibraryLookup dxgi = LibraryLookup.ofLibrary("dxgi");
         try (var scope = NativeScope.unboundedScope()) {
-            // IDXGIFactory1* dxgiFactory;
+            // IDXGIFactory1** dxgiFactory;
             var dxgiFactory = scope.allocate(C_POINTER);
             // https://docs.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-createdxgifactory1
+            // HRESULT = CreateDXGIFactory1(_uuid(dxgiFactory), &dxgiFactory))
             int hresult = dxgi_h.CreateDXGIFactory1(GUID(IID.IID_IDXGIFactory1), dxgiFactory);
             System.out.println("hresult: " + hresult);
             System.out.println("factory: " + dxgiFactory);
             var dxgiAdapter = scope.allocate(C_POINTER);
-            //EnumAdapters1$set(dxgiFactory, MemoryAddress.NULL);
+            System.out.println("IDXGIFactory1Vtbl byte size: " + dxgi_h.IDXGIFactory1Vtbl.$LAYOUT().byteSize());
+            MemorySegment segment = MemorySegment.allocateNative(dxgi_h.IDXGIFactory1Vtbl.$LAYOUT().byteSize());
+            MemoryAddress address = segment.address().addOffset(64);
+            FunctionDescriptor functionDescriptor = FunctionDescriptor.of(C_INT, C_INT, C_POINTER);
+            MethodType methodType = MethodType.methodType(int.class, int.class, MemoryAddress.class);
+            MethodHandle methodHandle = getSystemLinker().downcallHandle(address, methodType, functionDescriptor);
+            try {
+                methodHandle.invokeWithArguments(0, dxgiAdapter);
+            } catch (Throwable throwable) {
+                throwable.printStackTrace();
+            }
+            System.out.println("vh: " + EnumAdapters1$VH());
+            //EnumAdapters1$get(dxgiFactory, MemoryAccess.getAddress(dxgiAdapter));
             // Now we need to implement and call the following:
             /*
             void GetHardwareAdapter(IDXGIFactory4* pFactory, IDXGIAdapter1** ppAdapter)
