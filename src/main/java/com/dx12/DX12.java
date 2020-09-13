@@ -79,18 +79,21 @@ public class DX12 {
             // HRESULT = CreateDXGIFactory1(_uuid(dxgiFactory), &dxgiFactory))
             int hresult = dxgi_h.CreateDXGIFactory1(GUID(IID.IID_IDXGIFactory1), dxgiFactory);
             System.out.println("hresult: " + hresult);
-            System.out.println("factory: " + dxgiFactory);
             var dxgiAdapter = scope.allocate(C_POINTER);
-            System.out.println("IDXGIFactory1Vtbl byte size: " + dxgi_h.IDXGIFactory1Vtbl.$LAYOUT().byteSize());
+            System.out.println("IDXGIFactory1Vtbl byte size: " + dxgi_h.IDXGIFactory1Vtbl.$LAYOUT().byteSize()); // 112
             MemorySegment segment = MemorySegment.allocateNative(dxgi_h.IDXGIFactory1Vtbl.$LAYOUT().byteSize());
             MemoryAddress address = segment.address().addOffset(64);
-            FunctionDescriptor functionDescriptor = FunctionDescriptor.of(C_INT, C_INT, C_POINTER);
-            MethodType methodType = MethodType.methodType(int.class, int.class, MemoryAddress.class);
+            FunctionDescriptor functionDescriptor = FunctionDescriptor.of(C_INT, // Return type = HRESULT
+                    C_POINTER,
+                    C_INT, // arg0 = UINT
+                    C_POINTER // arg1 = IDXGIAdapter1 **ppAdapter
+            );
+            MethodType methodType = MethodType.methodType(int.class, MemoryAddress.class, int.class, MemoryAddress.class);
             MethodHandle methodHandle = getSystemLinker().downcallHandle(address, methodType, functionDescriptor);
             try {
-                methodHandle.invokeWithArguments(0, dxgiAdapter);
-            } catch (Throwable throwable) {
-                throwable.printStackTrace();
+                hresult = (int) methodHandle.invokeExact(dxgiFactory.address(), 0, dxgiAdapter.address());
+            } catch (Throwable ex) {
+                ex.printStackTrace();
             }
             System.out.println("vh: " + EnumAdapters1$VH());
             //EnumAdapters1$get(dxgiFactory, MemoryAccess.getAddress(dxgiAdapter));
