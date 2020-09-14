@@ -76,25 +76,20 @@ public class DX12 {
             // IDXGIFactory1** dxgiFactory;
             var dxgiFactory = scope.allocate(C_POINTER);
             // https://docs.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-createdxgifactory1
-            // HRESULT = CreateDXGIFactory1(_uuid(dxgiFactory), &dxgiFactory))
+            // HRESULT = CreateDXGIFactory1(_uuidof(dxgiFactory), &dxgiFactory))
             int hresult = dxgi_h.CreateDXGIFactory1(GUID(IID.IID_IDXGIFactory1), dxgiFactory);
             System.out.println("hresult: " + hresult);
             var dxgiAdapter = scope.allocate(C_POINTER);
-            System.out.println("IDXGIFactory1Vtbl byte size: " + dxgi_h.IDXGIFactory1Vtbl.$LAYOUT().byteSize()); // 112
-            System.out.println("something: " + dxgi_h.IDXGIFactory1Vtbl.$LAYOUT().select(MemoryLayout.PathElement.groupElement("EnumAdapters1")));
             MemoryAddress address = MemorySegment.allocateNative(dxgi_h.IDXGIFactory1Vtbl.$LAYOUT().select(MemoryLayout.PathElement.groupElement("EnumAdapters1"))).address();
-            /*
-
-             */
             FunctionDescriptor functionDescriptor = FunctionDescriptor.of(C_INT, // Return type = HRESULT
-                    C_POINTER, // arg0 = IDXGIFactory1 * This
-                    C_INT, // arg1 = UINT Adapter
+                    dxgi_h.IDXGIFactory1.$LAYOUT(), // arg0 = IDXGIFactory1 * This
+                    C_INT.withName("Adapter"), // arg1 = UINT Adapter
                     C_POINTER // arg1 = IDXGIAdapter1 **ppAdapter
             );
-            MethodType methodType = MethodType.methodType(int.class, MemoryAddress.class, int.class, MemoryAddress.class);
+            MethodType methodType = MethodType.methodType(int.class, MemorySegment.class, int.class, MemoryAddress.class);
             MethodHandle methodHandle = getSystemLinker().downcallHandle(address, methodType, functionDescriptor);
             try {
-                hresult = (int) methodHandle.invokeExact(dxgiFactory.address(), 0, dxgiAdapter.address());
+                hresult = (int) methodHandle.invokeExact(dxgiFactory, 1, dxgiAdapter.address());
             } catch (Throwable ex) {
                 ex.printStackTrace();
             }
