@@ -23,6 +23,15 @@ import static com.dx12.dxgi_h.IDXGIAdapter1;
 import static com.dx12.dxgi_h.IDXGIAdapter1Vtbl;
 import static com.dx12.dxgi_h.IDXGIFactory1;
 import static com.dx12.dxgi_h.IDXGIFactory1Vtbl;
+
+import static com.dx12.d3d12_h.D3D12CreateDevice;
+import static com.dx12.d3d12_h.ID3D12CommandQueue;
+import static com.dx12.d3d12_h.ID3D12Device;
+import static com.dx12.d3d12_h.ID3D12DeviceVtbl;
+import static com.dx12.d3d12_h.D3D12_COMMAND_QUEUE_DESC;
+import static com.dx12.d3d12_h.D3D12_COMMAND_LIST_TYPE_DIRECT;
+import static com.dx12.d3d12_h.D3D12_COMMAND_QUEUE_FLAG_NONE;
+
 import static jdk.incubator.foreign.CSupport.*;
 import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
 
@@ -33,7 +42,9 @@ public class DX12 {
 
     public enum IID {
         IID_IDXGIAdapter1,
-        IID_IDXGIFactory1
+        IID_IDXGIFactory1,
+        IID_ID3D12Device,
+        IID_ID3D12CommandQueue
     }
 
     public static MemorySegment GUID(IID iid) {
@@ -43,10 +54,15 @@ public class DX12 {
     private static final Map<IID, MemorySegment> GUID_MAP = Map.of(
             IID.IID_IDXGIFactory1,
             //   0x770aae78, 0xf26f, 0x4dba,            0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87
-            GUID(0x770aae78, 0xf26f, 0x4dba, new int[] {0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87}),
+            GUID(0x770aae78, 0xf26f, 0x4dba, new int[]{0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87}),
             IID.IID_IDXGIAdapter1,
             //   0x29038f61, 0x3839, 0x4626,            0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05
-            GUID(0x29038f61, 0x3839, 0x4626, new int[] {0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05}));
+            GUID(0x29038f61, 0x3839, 0x4626, new int[]{0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05}),
+            IID.IID_ID3D12Device,
+            GUID(0x189819f1, 0x1db6, 0x4b57, new int[]{0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7}),
+            IID.IID_ID3D12CommandQueue,
+            GUID(0x0ec870a6, 0x5d7e, 0x4c22, new int[]{0x8c, 0xfc, 0x5b, 0xaa, 0xe0, 0x76, 0x16, 0xed})
+    );
 
     public static MemorySegment GUID(int data1, int data2, int data3, int[] data4) {
         MemoryLayout GUID = MemoryLayout.ofStruct(
@@ -117,6 +133,40 @@ public class DX12 {
             MemorySegment descStr = DXGI_ADAPTER_DESC1.Description$slice(pDesc);
             String str = new String(descStr.toByteArray(), StandardCharsets.UTF_16LE);
             System.out.println(str);
+
+            //D3D12CreateDevice$MH()
+            // ID3D12Device** d3d12Device;
+            var ppDevice = ID3D12Device.allocatePointer(scope);
+
+            // D3D12CreateDevice(pAdapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&ppDevice))
+            checkResult(D3D12CreateDevice(pAdapter, (int) 45056L, GUID(IID.IID_ID3D12Device), ppDevice));
+            // ID3D12Device*
+            MemorySegment pDevice = asSegment(MemoryAccess.getAddress(ppDevice), ID3D12Device.$LAYOUT());
+
+            // (This)->lpVtbl
+            MemorySegment deviceVtbl = asSegment(ID3D12Device.lpVtbl$get(pDevice), ID3D12DeviceVtbl.$LAYOUT());
+
+            // lpVtbl->CreateCommandQueue
+            MemoryAddress addrCreateCommandQueue = ID3D12DeviceVtbl.CreateCommandQueue$get(deviceVtbl);
+
+            // D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+            // queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+            // queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+            MemorySegment pQueueDesc =  D3D12_COMMAND_QUEUE_DESC.allocate(scope);
+            MemorySegment queueDesc = asSegment(pQueueDesc.address(), D3D12_COMMAND_QUEUE_DESC.$LAYOUT());
+            D3D12_COMMAND_QUEUE_DESC.Type$set(queueDesc, D3D12_COMMAND_LIST_TYPE_DIRECT());
+            D3D12_COMMAND_QUEUE_DESC.Flags$set(queueDesc, D3D12_COMMAND_QUEUE_FLAG_NONE());
+
+            // link the pointer
+            MethodHandle MH_ID3D12Device_CreateCommandQueue = getSystemLinker().downcallHandle(
+                    addrCreateCommandQueue,
+                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
+                    FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER, C_POINTER));
+
+            var ppQueue = ID3D12CommandQueue.allocatePointer(scope);
+
+            checkResult((int) MH_ID3D12Device_CreateCommandQueue.invokeExact(pQueueDesc.address(),
+                    GUID(IID.IID_ID3D12CommandQueue).address(), ppQueue.address()));
         }
     }
 

@@ -2,4 +2,5 @@ $jdk = "C:\Users\mikee\dev\panama-foreign\build\windows-x86_64-server-release\jd
 nal -Name jextract -Value "$jdk\bin\jextract.exe"
 $I = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.19041.0"
 jextract --source -d . -t com.dx12 -I "$I\um" --filter "d3d12.h" -- "$I\um\d3d12.h"
+jextract --source -d . -t com.dx12 -I "$I\um" --filter "d3dcommon.h" -- "$I\um\d3dcommon.h"
 jextract --source -d . -t com.dx12 -I "$I\um" --filter "dxgi.h" -- "$I\shared\dxgi.h"
