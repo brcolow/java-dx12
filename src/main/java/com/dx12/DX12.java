@@ -81,11 +81,14 @@ public class DX12 {
             System.out.println("hresult: " + hresult);
             var dxgiAdapter = scope.allocate(C_POINTER);
             System.out.println("IDXGIFactory1Vtbl byte size: " + dxgi_h.IDXGIFactory1Vtbl.$LAYOUT().byteSize()); // 112
-            MemorySegment segment = MemorySegment.allocateNative(dxgi_h.IDXGIFactory1Vtbl.$LAYOUT().byteSize());
-            MemoryAddress address = segment.address().addOffset(64);
+            System.out.println("something: " + dxgi_h.IDXGIFactory1Vtbl.$LAYOUT().select(MemoryLayout.PathElement.groupElement("EnumAdapters1")));
+            MemoryAddress address = MemorySegment.allocateNative(dxgi_h.IDXGIFactory1Vtbl.$LAYOUT().select(MemoryLayout.PathElement.groupElement("EnumAdapters1"))).address();
+            /*
+
+             */
             FunctionDescriptor functionDescriptor = FunctionDescriptor.of(C_INT, // Return type = HRESULT
-                    C_POINTER,
-                    C_INT, // arg0 = UINT
+                    C_POINTER, // arg0 = IDXGIFactory1 * This
+                    C_INT, // arg1 = UINT Adapter
                     C_POINTER // arg1 = IDXGIAdapter1 **ppAdapter
             );
             MethodType methodType = MethodType.methodType(int.class, MemoryAddress.class, int.class, MemoryAddress.class);
