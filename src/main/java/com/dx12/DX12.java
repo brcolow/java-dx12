@@ -41,48 +41,32 @@ import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
 public class DX12 {
 
     public enum IID {
-        IID_IDXGIAdapter1,
-        IID_IDXGIFactory1,
-        IID_ID3D12Device,
-        IID_ID3D12CommandQueue
-    }
+        IID_IDXGIAdapter1     (0x29038f61, 0x3839, 0x4626, 0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05),
+        IID_IDXGIFactory1     (0x770aae78, 0xf26f, 0x4dba, 0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87),
+        IID_ID3D12Device      (0x189819f1, 0x1db6, 0x4b57, 0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7),
+        IID_ID3D12CommandQueue(0x0ec870a6, 0x5d7e, 0x4c22, 0x8c, 0xfc, 0x5b, 0xaa, 0xe0, 0x76, 0x16, 0xed);
 
-    public static MemorySegment GUID(IID iid) {
-        return GUID_MAP.get(iid);
-    }
+        private final MemorySegment guid;
 
-    private static final Map<IID, MemorySegment> GUID_MAP = Map.of(
-            IID.IID_IDXGIFactory1,
-            //   0x770aae78, 0xf26f, 0x4dba,            0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87
-            GUID(0x770aae78, 0xf26f, 0x4dba, new int[]{0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87}),
-            IID.IID_IDXGIAdapter1,
-            //   0x29038f61, 0x3839, 0x4626,            0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05
-            GUID(0x29038f61, 0x3839, 0x4626, new int[]{0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05}),
-            IID.IID_ID3D12Device,
-            GUID(0x189819f1, 0x1db6, 0x4b57, new int[]{0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7}),
-            IID.IID_ID3D12CommandQueue,
-            GUID(0x0ec870a6, 0x5d7e, 0x4c22, new int[]{0x8c, 0xfc, 0x5b, 0xaa, 0xe0, 0x76, 0x16, 0xed})
-    );
-
-    public static MemorySegment GUID(int data1, int data2, int data3, int[] data4) {
-        MemoryLayout GUID = MemoryLayout.ofStruct(
-                C_INT.withName("Data1"),
-                C_SHORT.withName("Data2"),
-                C_SHORT.withName("Data3"),
-                MemoryLayout.ofSequence(8, C_BOOL).withName("Data4")
-        ).withName("_GUID");
-        VarHandle data1Handle = GUID.varHandle(int.class, groupElement("Data1"));
-        VarHandle data2Handle = GUID.varHandle(short.class, groupElement("Data2"));
-        VarHandle data3Handle = GUID.varHandle(short.class, groupElement("Data3"));
-        VarHandle data4Handle = GUID.varHandle(byte.class, groupElement("Data4"),
-                MemoryLayout.PathElement.sequenceElement());
-        MemorySegment segment = MemorySegment.allocateNative(GUID.map(l -> ((SequenceLayout) l).withElementCount(8),
-                MemoryLayout.PathElement.groupElement("Data4")));
-        data1Handle.set(segment, data1);
-        data2Handle.set(segment, (short) data2);
-        data3Handle.set(segment, (short) data3);
-        IntStream.range(0, 8).forEachOrdered(i -> data4Handle.set(segment, i, (byte) data4[i]));
-        return segment;
+        IID(int data1, int data2, int data3, int... data4) {
+            MemoryLayout GUID = MemoryLayout.ofStruct(
+                    C_INT.withName("Data1"),
+                    C_SHORT.withName("Data2"),
+                    C_SHORT.withName("Data3"),
+                    MemoryLayout.ofSequence(8, C_BOOL).withName("Data4")
+            ).withName("_GUID");
+            VarHandle data1Handle = GUID.varHandle(int.class, groupElement("Data1"));
+            VarHandle data2Handle = GUID.varHandle(short.class, groupElement("Data2"));
+            VarHandle data3Handle = GUID.varHandle(short.class, groupElement("Data3"));
+            VarHandle data4Handle = GUID.varHandle(byte.class, groupElement("Data4"),
+                    MemoryLayout.PathElement.sequenceElement());
+            MemorySegment segment = MemorySegment.allocateNative(GUID);
+            data1Handle.set(segment, data1);
+            data2Handle.set(segment, (short) data2);
+            data3Handle.set(segment, (short) data3);
+            IntStream.range(0, 8).forEachOrdered(i -> data4Handle.set(segment, i, (byte) data4[i]));
+            this.guid = segment;
+        }
     }
 
     public static void main(String[] args) throws Throwable {
@@ -92,7 +76,7 @@ public class DX12 {
             // IDXGIFactory1** dxgiFactory;
             var ppDxgiFactory = IDXGIFactory1.allocatePointer(scope);
             // HRESULT = CreateDXGIFactory1(_uuid(dxgiFactory), &dxgiFactory))
-            checkResult(dxgi_h.CreateDXGIFactory1(GUID(IID.IID_IDXGIFactory1), ppDxgiFactory));
+            checkResult(dxgi_h.CreateDXGIFactory1(IID.IID_IDXGIFactory1.guid, ppDxgiFactory));
             // IDXGIFactory1*
             MemorySegment pDxgiFactory = asSegment(MemoryAccess.getAddress(ppDxgiFactory), IDXGIFactory1.$LAYOUT());
 
@@ -134,12 +118,11 @@ public class DX12 {
             String str = new String(descStr.toByteArray(), StandardCharsets.UTF_16LE);
             System.out.println(str);
 
-            //D3D12CreateDevice$MH()
             // ID3D12Device** d3d12Device;
             var ppDevice = ID3D12Device.allocatePointer(scope);
 
             // D3D12CreateDevice(pAdapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&ppDevice))
-            checkResult(D3D12CreateDevice(pAdapter, (int) 45056L, GUID(IID.IID_ID3D12Device), ppDevice));
+            checkResult(D3D12CreateDevice(pAdapter, (int) 45056L, IID.IID_ID3D12Device.guid, ppDevice));
             // ID3D12Device*
             MemorySegment pDevice = asSegment(MemoryAccess.getAddress(ppDevice), ID3D12Device.$LAYOUT());
 
@@ -153,20 +136,25 @@ public class DX12 {
             // queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
             // queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
             MemorySegment pQueueDesc =  D3D12_COMMAND_QUEUE_DESC.allocate(scope);
-            MemorySegment queueDesc = asSegment(pQueueDesc.address(), D3D12_COMMAND_QUEUE_DESC.$LAYOUT());
-            D3D12_COMMAND_QUEUE_DESC.Type$set(queueDesc, D3D12_COMMAND_LIST_TYPE_DIRECT());
-            D3D12_COMMAND_QUEUE_DESC.Flags$set(queueDesc, D3D12_COMMAND_QUEUE_FLAG_NONE());
+            // This is unnecessary:
+            // You already have a fully readable/writable segment for the struct
+            // you should only use `asSegment` if you get a MemoryAddress from the library, but you want to turn it into
+            // a memory segment with certain known size (so that you can read and write from it).
+            //MemorySegment queueDesc = asSegment(pQueueDesc.address(), D3D12_COMMAND_QUEUE_DESC.$LAYOUT());
+            D3D12_COMMAND_QUEUE_DESC.Type$set(pQueueDesc, D3D12_COMMAND_LIST_TYPE_DIRECT());
+            D3D12_COMMAND_QUEUE_DESC.Flags$set(pQueueDesc, D3D12_COMMAND_QUEUE_FLAG_NONE());
 
-            // link the pointer
+            // link the pointer (first MemoryAddress argument is the (this) pointer (C++ => C)
             MethodHandle MH_ID3D12Device_CreateCommandQueue = getSystemLinker().downcallHandle(
                     addrCreateCommandQueue,
-                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
-                    FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER, C_POINTER));
+                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
+                    FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER, C_POINTER, C_POINTER));
 
+            // ID3D12CommandQueue**
             var ppQueue = ID3D12CommandQueue.allocatePointer(scope);
 
-            checkResult((int) MH_ID3D12Device_CreateCommandQueue.invokeExact(pQueueDesc.address(),
-                    GUID(IID.IID_ID3D12CommandQueue).address(), ppQueue.address()));
+            checkResult((int) MH_ID3D12Device_CreateCommandQueue.invokeExact(pDevice.address(), pQueueDesc.address(),
+                    IID.IID_ID3D12CommandQueue.guid.address(), ppQueue.address()));
         }
     }
 
