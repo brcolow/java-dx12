@@ -14,7 +14,6 @@ import jdk.incubator.foreign.SequenceLayout;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
 import java.lang.invoke.VarHandle;
-import java.util.Map;
 import java.nio.charset.StandardCharsets;
 import java.util.stream.IntStream;
 
@@ -36,6 +35,8 @@ import static jdk.incubator.foreign.CSupport.*;
 import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
 
 /**
+ * https://github.com/Meith/DX12/tree/master/DX12
+ *
  * https://cr.openjdk.java.net/~mcimadamore/panama/ffi.html#appendix-full-source-code
  */
 public class DX12 {
@@ -100,6 +101,7 @@ public class DX12 {
          */
     }
     public static void main(String[] args) throws Throwable {
+        LibraryLookup user32 = LibraryLookup.ofLibrary("user32");
         LibraryLookup d3d12 = LibraryLookup.ofLibrary("D3D12");
         LibraryLookup dxgi = LibraryLookup.ofLibrary("dxgi");
         try (NativeScope scope = NativeScope.unboundedScope()) {
