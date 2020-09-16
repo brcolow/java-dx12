@@ -26,7 +26,7 @@ import static com.dx12.dxgi_h.IDXGIAdapter1;
 import static com.dx12.dxgi_h.IDXGIAdapter1Vtbl;
 import static com.dx12.dxgi_h.IDXGIFactory1;
 import static com.dx12.dxgi_h.IDXGIFactory1Vtbl;
-//import static com.dx12.Windows_h.tagWNDCLASSEXW;
+
 import static jdk.incubator.foreign.CSupport.*;
 import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
 
