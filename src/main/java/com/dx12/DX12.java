@@ -1,15 +1,12 @@
 package com.dx12;
 
-import com.dx12.d3d12_h;
-import com.dx12.dxgi_h;
 import jdk.incubator.foreign.FunctionDescriptor;
+import jdk.incubator.foreign.LibraryLookup;
+import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemoryAddress;
 import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemorySegment;
-import jdk.incubator.foreign.LibraryLookup;
 import jdk.incubator.foreign.NativeScope;
-import jdk.incubator.foreign.MemoryAccess;
-import jdk.incubator.foreign.SequenceLayout;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
@@ -17,20 +14,19 @@ import java.lang.invoke.VarHandle;
 import java.nio.charset.StandardCharsets;
 import java.util.stream.IntStream;
 
+import static com.dx12.d3d12_h.D3D12CreateDevice;
+import static com.dx12.d3d12_h.D3D12_COMMAND_LIST_TYPE_DIRECT;
+import static com.dx12.d3d12_h.D3D12_COMMAND_QUEUE_DESC;
+import static com.dx12.d3d12_h.D3D12_COMMAND_QUEUE_FLAG_NONE;
+import static com.dx12.d3d12_h.ID3D12CommandQueue;
+import static com.dx12.d3d12_h.ID3D12Device;
+import static com.dx12.d3d12_h.ID3D12DeviceVtbl;
 import static com.dx12.dxgi_h.DXGI_ADAPTER_DESC1;
 import static com.dx12.dxgi_h.IDXGIAdapter1;
 import static com.dx12.dxgi_h.IDXGIAdapter1Vtbl;
 import static com.dx12.dxgi_h.IDXGIFactory1;
 import static com.dx12.dxgi_h.IDXGIFactory1Vtbl;
-
-import static com.dx12.d3d12_h.D3D12CreateDevice;
-import static com.dx12.d3d12_h.ID3D12CommandQueue;
-import static com.dx12.d3d12_h.ID3D12Device;
-import static com.dx12.d3d12_h.ID3D12DeviceVtbl;
-import static com.dx12.d3d12_h.D3D12_COMMAND_QUEUE_DESC;
-import static com.dx12.d3d12_h.D3D12_COMMAND_LIST_TYPE_DIRECT;
-import static com.dx12.d3d12_h.D3D12_COMMAND_QUEUE_FLAG_NONE;
-
+//import static com.dx12.Windows_h.tagWNDCLASSEXW;
 import static jdk.incubator.foreign.CSupport.*;
 import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
 
@@ -70,7 +66,9 @@ public class DX12 {
         }
     }
 
-    public static void createWindow() {
+    public static void createWindow(NativeScope scope) {
+        //MemorySegment pwindowClass = tagWNDCLASSEXW.allocate(scope);
+
         /*
             // Initialize the window class.
             WNDCLASSEX windowClass = { 0 };
@@ -105,6 +103,7 @@ public class DX12 {
         LibraryLookup d3d12 = LibraryLookup.ofLibrary("D3D12");
         LibraryLookup dxgi = LibraryLookup.ofLibrary("dxgi");
         try (NativeScope scope = NativeScope.unboundedScope()) {
+            createWindow(scope);
             // IDXGIFactory1** dxgiFactory;
             var ppDxgiFactory = IDXGIFactory1.allocatePointer(scope);
             // HRESULT = CreateDXGIFactory1(_uuid(dxgiFactory), &dxgiFactory))
