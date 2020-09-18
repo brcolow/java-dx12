@@ -1,9 +1,11 @@
 package com.dx12;
 
+import jdk.incubator.foreign.Addressable;
 import jdk.incubator.foreign.FunctionDescriptor;
 import jdk.incubator.foreign.LibraryLookup;
 import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemoryAddress;
+import jdk.incubator.foreign.MemoryHandles;
 import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.NativeScope;
@@ -14,6 +16,7 @@ import java.lang.invoke.VarHandle;
 import java.nio.charset.StandardCharsets;
 import java.util.stream.IntStream;
 
+/*
 import static com.dx12.d3d12_h.D3D12CreateDevice;
 import static com.dx12.d3d12_h.D3D12_COMMAND_LIST_TYPE_DIRECT;
 import static com.dx12.d3d12_h.D3D12_COMMAND_QUEUE_DESC;
@@ -26,8 +29,9 @@ import static com.dx12.dxgi_h.IDXGIAdapter1;
 import static com.dx12.dxgi_h.IDXGIAdapter1Vtbl;
 import static com.dx12.dxgi_h.IDXGIFactory1;
 import static com.dx12.dxgi_h.IDXGIFactory1Vtbl;
+ */
 
-import static jdk.incubator.foreign.CSupport.*;
+import static jdk.incubator.foreign.CLinker.*;
 import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
 
 /**
@@ -50,7 +54,7 @@ public class DX12 {
                     C_INT.withName("Data1"),
                     C_SHORT.withName("Data2"),
                     C_SHORT.withName("Data3"),
-                    MemoryLayout.ofSequence(8, C_BOOL).withName("Data4")
+                    MemoryLayout.ofSequence(8, C_CHAR).withName("Data4")
             ).withName("_GUID");
             VarHandle data1Handle = GUID.varHandle(int.class, groupElement("Data1"));
             VarHandle data2Handle = GUID.varHandle(short.class, groupElement("Data2"));
@@ -98,6 +102,46 @@ public class DX12 {
                 pSample);
          */
     }
+    //static final LibraryLookup[] LIBRARIES = RuntimeHelper.libraries(new String[] {});
+    public static @C("HRESULT") int CreateDXGIFactory1(@C("const IID*") Addressable riid, @C("void**") Addressable ppFactory) {
+        try {
+            return (int) RuntimeHelper.downcallHandle(
+            new LibraryLookup[] { LibraryLookup.ofDefault() }, "CreateDXGIFactory1",
+                    "(Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;)I",
+                    FunctionDescriptor.of(C_INT,
+                            C_POINTER,
+                            C_POINTER
+                    ), false
+            ).invokeExact(riid.address(), ppFactory.address());
+        } catch (Throwable ex) {
+            throw new AssertionError(ex);
+        }
+    }
+
+    public static class DXGI_ADAPTER_DESC1 {
+        @C("struct DXGI_ADAPTER_DESC1")
+        public static MemorySegment allocate(NativeScope scope) {
+            return scope.allocate(MemoryLayout.ofStruct(
+                    MemoryLayout.ofSequence(128, C_SHORT).withName("Description"),
+                    C_INT.withName("VendorId"),
+                    C_INT.withName("DeviceId"),
+                    C_INT.withName("SubSysId"),
+                    C_INT.withName("Revision"),
+                    C_LONGLONG.withName("DedicatedVideoMemory"),
+                    C_LONGLONG.withName("DedicatedSystemMemory"),
+                    C_LONGLONG.withName("SharedSystemMemory"),
+                    MemoryLayout.ofStruct(
+                            C_INT.withName("LowPart"),
+                            C_INT.withName("HighPart")
+                    ).withName("AdapterLuid"),
+                    C_INT.withName("Flags"),
+                    MemoryLayout.ofPaddingBits(32)
+            ).withName("DXGI_ADAPTER_DESC1"));
+        }
+        public static MemorySegment Description$slice(MemorySegment var0) {
+            return RuntimeHelper.nonCloseableNonTransferableSegment(var0.asSlice(0L, 256L));
+        }
+    }
     public static void main(String[] args) throws Throwable {
         LibraryLookup user32 = LibraryLookup.ofLibrary("user32");
         LibraryLookup d3d12 = LibraryLookup.ofLibrary("D3D12");
@@ -105,50 +149,102 @@ public class DX12 {
         try (NativeScope scope = NativeScope.unboundedScope()) {
             createWindow(scope);
             // IDXGIFactory1** dxgiFactory;
-            var ppDxgiFactory = IDXGIFactory1.allocatePointer(scope);
+            var ppDxgiFactory = scope.allocate(C_POINTER);
             // HRESULT = CreateDXGIFactory1(_uuid(dxgiFactory), &dxgiFactory))
-            checkResult(dxgi_h.CreateDXGIFactory1(IID.IID_IDXGIFactory1.guid, ppDxgiFactory));
+            checkResult(CreateDXGIFactory1(IID.IID_IDXGIFactory1.guid, ppDxgiFactory));
             // IDXGIFactory1*
-            MemorySegment pDxgiFactory = asSegment(MemoryAccess.getAddress(ppDxgiFactory), IDXGIFactory1.$LAYOUT());
+            MemorySegment pDxgiFactory = asSegment(MemoryAccess.getAddress(ppDxgiFactory), MemoryLayout.ofStruct(
+                    C_POINTER.withName("lpVtbl")
+            ).withName("IDXGIFactory1"));
 
             // (This)->lpVtbl
-            MemorySegment vtbl = asSegment(IDXGIFactory1.lpVtbl$get(pDxgiFactory), IDXGIFactory1Vtbl.$LAYOUT());
+            MemoryLayout vtblLayout = NemoryLayout.ofStruct(
+                    C_POINTER.withName("QueryInterface"),
+                    C_POINTER.withName("AddRef"),
+                    C_POINTER.withName("Release"),
+                    C_POINTER.withName("SetPrivateData"),
+                    C_POINTER.withName("SetPrivateDataInterface"),
+                    C_POINTER.withName("GetPrivateData"),
+                    C_POINTER.withName("GetParent"),
+                    C_POINTER.withName("EnumAdapters"),
+                    C_POINTER.withName("MakeWindowAssociation"),
+                    C_POINTER.withName("GetWindowAssociation"),
+                    C_POINTER.withName("CreateSwapChain"),
+                    C_POINTER.withName("CreateSoftwareAdapter"),
+                    C_POINTER.withName("EnumAdapters1"),
+                    C_POINTER.withName("IsCurrent")
+            ).withName("IDXGIFactory1Vtbl");
+            MemorySegment vtbl = asSegment(IDXGIFactory1.lpVtbl$get(pDxgiFactory), vtblLayout);
             // lpVtbl->EnumAdapters1
-            MemoryAddress addrEnumAdapters = IDXGIFactory1Vtbl.EnumAdapters1$get(vtbl);
+            MemoryAddress addrEnumAdapters =  MemoryHandles.asAddressVarHandle(vtblLayout.varHandle(long.class, MemoryLayout.PathElement.groupElement("EnumAdapters1"))).get(vtbl);
 
             // link the pointer
-            MethodHandle MH_EnumAdapters1 = getSystemLinker().downcallHandle(
+            MethodHandle MH_EnumAdapters1 = getInstance().downcallHandle(
                     addrEnumAdapters,
                     MethodType.methodType(int.class, MemoryAddress.class, int.class, MemoryAddress.class),
                     FunctionDescriptor.of(C_INT, C_POINTER, C_INT, C_POINTER));
 
             /* [annotation][out] _COM_Outptr_  IDXGIAdapter1** */
-            MemorySegment ppOut = IDXGIAdapter1.allocatePointer(scope);
+            MemorySegment ppOut = scope.allocate(C_POINTER);
             checkResult((int) MH_EnumAdapters1.invokeExact(pDxgiFactory.address(), 0, ppOut.address()));
             // IDXGIAdapter1*
-            MemorySegment pAdapter = asSegment(MemoryAccess.getAddress(ppOut), IDXGIAdapter1.$LAYOUT());
+            MemorySegment pAdapter = asSegment(MemoryAccess.getAddress(ppOut), MemoryLayout.ofStruct(
+                    C_POINTER.withName("lpVtbl")
+            ).withName("IDXGIAdapter1"));
 
             // (This)->lpVtbl
-            MemorySegment vtbl2 = asSegment(IDXGIAdapter1.lpVtbl$get(pAdapter), IDXGIAdapter1Vtbl.$LAYOUT());
+            MemoryLayout adapterVtblLayout = MemoryLayout.ofStruct(
+                    C_POINTER.withName("QueryInterface"),
+                    C_POINTER.withName("AddRef"),
+                    C_POINTER.withName("Release"),
+                    C_POINTER.withName("SetPrivateData"),
+                    C_POINTER.withName("SetPrivateDataInterface"),
+                    C_POINTER.withName("GetPrivateData"),
+                    C_POINTER.withName("GetParent"),
+                    C_POINTER.withName("EnumOutputs"),
+                    C_POINTER.withName("GetDesc"),
+                    C_POINTER.withName("CheckInterfaceSupport"),
+                    C_POINTER.withName("GetDesc1")
+            ).withName("IDXGIAdapter1Vtbl");
+            MemorySegment vtbl2 = asSegment(IDXGIAdapter1.lpVtbl$get(pAdapter), adapterVtblLayout);
             // lpVtbl->EnumAdapters1
             // HRESULT(*)(IDXGIAdapter1*,DXGI_ADAPTER_DESC1*)
-            MemoryAddress addrGetDesc1 = IDXGIAdapter1Vtbl.GetDesc1$get(vtbl2);
+            MemoryAddress addrGetDesc1 = MemoryHandles.asAddressVarHandle(adapterVtblLayout.varHandle(long.class, MemoryLayout.PathElement.groupElement("GetDesc1"))).get(vtbl);
+            //MemoryAddress addrGetDesc1 = IDXGIAdapter1Vtbl.GetDesc1$get(vtbl2);
 
             // link the pointer
-            MethodHandle MH_GetDesc1 = getSystemLinker().downcallHandle(
+            MethodHandle MH_GetDesc1 = getInstance().downcallHandle(
                     addrGetDesc1,
                     MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class),
                     FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER));
 
             /* DXGI_ADAPTER_DESC1* */
-            MemorySegment pDesc = DXGI_ADAPTER_DESC1.allocate(scope);
+            //MemorySegment pDesc = DXGI_ADAPTER_DESC1.allocate(scope);
+            MemorySegment pDesc = scope.allocate(MemoryLayout.ofStruct(
+                    MemoryLayout.ofSequence(128, C_SHORT).withName("Description"),
+                    C_INT.withName("VendorId"),
+                    C_INT.withName("DeviceId"),
+                    C_INT.withName("SubSysId"),
+                    C_INT.withName("Revision"),
+                    C_LONGLONG.withName("DedicatedVideoMemory"),
+                    C_LONGLONG.withName("DedicatedSystemMemory"),
+                    C_LONGLONG.withName("SharedSystemMemory"),
+                    MemoryLayout.ofStruct(
+                            C_LONG.withName("LowPart"),
+                            C_LONG.withName("HighPart")
+                    ).withName("AdapterLuid"),
+                    C_INT.withName("Flags"),
+                    MemoryLayout.ofPaddingBits(32)
+            ).withName("DXGI_ADAPTER_DESC1"));
             checkResult((int) MH_GetDesc1.invokeExact(pAdapter.address(), pDesc.address()));
 
             // print description
-            MemorySegment descStr = DXGI_ADAPTER_DESC1.Description$slice(pDesc);
+            MemorySegment descStr = RuntimeHelper.nonCloseableNonTransferableSegment(pDesc.asSlice(0, 256));
+            //MemorySegment descStr = DXGI_ADAPTER_DESC1.Description$slice(pDesc);
             String str = new String(descStr.toByteArray(), StandardCharsets.UTF_16LE);
             System.out.println(str);
 
+            /*
             // ID3D12Device** d3d12Device;
             var ppDevice = ID3D12Device.allocatePointer(scope);
 
@@ -186,11 +282,13 @@ public class DX12 {
 
             checkResult((int) MH_ID3D12Device_CreateCommandQueue.invokeExact(pDevice.address(), pQueueDesc.address(),
                     IID.IID_ID3D12CommandQueue.guid.address(), ppQueue.address()));
+
+             */
         }
     }
 
     public static MemorySegment asSegment(MemoryAddress addr, MemoryLayout layout) {
-        return MemorySegment.ofNativeRestricted(addr, layout.byteSize(), Thread.currentThread(), null, null);
+        return addr.asSegmentRestricted(layout.byteSize()).withOwnerThread(Thread.currentThread());
     }
 
     private static final int S_OK = 0x00000000;
