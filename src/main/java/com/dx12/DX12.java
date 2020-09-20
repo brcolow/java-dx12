@@ -27,7 +27,7 @@ import static com.dx12.dxgi_h.IDXGIAdapter1Vtbl;
 import static com.dx12.dxgi_h.IDXGIFactory1;
 import static com.dx12.dxgi_h.IDXGIFactory1Vtbl;
 
-import static jdk.incubator.foreign.CSupport.*;
+import static jdk.incubator.foreign.CLinker.*;
 import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
 
 /**
@@ -50,7 +50,7 @@ public class DX12 {
                     C_INT.withName("Data1"),
                     C_SHORT.withName("Data2"),
                     C_SHORT.withName("Data3"),
-                    MemoryLayout.ofSequence(8, C_BOOL).withName("Data4")
+                    MemoryLayout.ofSequence(8, C_CHAR).withName("Data4")
             ).withName("_GUID");
             VarHandle data1Handle = GUID.varHandle(int.class, groupElement("Data1"));
             VarHandle data2Handle = GUID.varHandle(short.class, groupElement("Data2"));
@@ -68,7 +68,7 @@ public class DX12 {
 
     public static void createWindow(NativeScope scope) {
         //MemorySegment pwindowClass = tagWNDCLASSEXW.allocate(scope);
-
+        // Windows.h extraction not working yet, see: https://bugs.openjdk.java.net/browse/JDK-8253390
         /*
             // Initialize the window class.
             WNDCLASSEX windowClass = { 0 };
