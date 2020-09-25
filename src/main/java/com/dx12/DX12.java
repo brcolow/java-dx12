@@ -33,6 +33,7 @@ import static com.dx12.dxgi_h.IDXGIFactory1Vtbl;
 
 import static jdk.incubator.foreign.CLinker.C_CHAR;
 import static jdk.incubator.foreign.CLinker.C_INT;
+import static jdk.incubator.foreign.CLinker.C_LONG;
 import static jdk.incubator.foreign.CLinker.C_LONGLONG;
 import static jdk.incubator.foreign.CLinker.C_POINTER;
 import static jdk.incubator.foreign.CLinker.C_SHORT;
@@ -427,6 +428,89 @@ public class DX12 {
         }
     }
 
+    static final FunctionDescriptor CreateWindowExW$FUNC_ = FunctionDescriptor.of(C_POINTER,
+            C_LONG,
+            C_POINTER,
+            C_POINTER,
+            C_LONG,
+            C_INT,
+            C_INT,
+            C_INT,
+            C_INT,
+            C_POINTER,
+            C_POINTER,
+            C_POINTER,
+            C_POINTER
+    );
+
+    static final MethodHandle CreateWindowExW$MH_ = RuntimeHelper.downcallHandle(
+            LIBRARIES, "CreateWindowExW",
+            "(ILjdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;" +
+                    "IIIIILjdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;" +
+                    "Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;" +
+                    ")Ljdk/incubator/foreign/MemoryAddress;",
+            CreateWindowExW$FUNC_, false
+    );
+
+    public static  MethodHandle CreateWindowExW$MH() {
+        return CreateWindowExW$MH_;
+    }
+
+    public static @C("HWND") MemoryAddress CreateWindowExW (@C("DWORD") int dwExStyle,
+                                                            @C("LPCWSTR") Addressable lpClassName,
+                                                            @C("LPCWSTR") Addressable lpWindowName,
+                                                            @C("DWORD") int dwStyle, @C("int") int X, @C("int") int Y,
+                                                            @C("int") int nWidth, @C("int") int nHeight,
+                                                            @C("HWND") Addressable hWndParent,
+                                                            @C("HMENU") Addressable hMenu,
+                                                            @C("HINSTANCE") Addressable hInstance,
+                                                            @C("LPVOID") Addressable lpParam) {
+        try {
+            return (MemoryAddress) CreateWindowExW$MH().invokeExact(dwExStyle, lpClassName.address(),
+                    lpWindowName.address(), dwStyle, X, Y, nWidth, nHeight, hWndParent.address(), hMenu.address(),
+                    hInstance.address(), lpParam.address());
+        } catch (Throwable ex) {
+            throw new AssertionError(ex);
+        }
+    }
+
+    static final int WS_OVERLAPPEDWINDOW() { return (int)13565952L; }
+    static final int CW_USEDEFAULT() { return (int)-2147483648L; }
+    static final FunctionDescriptor GetLastError$FUNC_ = FunctionDescriptor.of(C_LONG);
+    public static @C("DWORD") int GetLastError () {
+        try {
+            return (int) GetLastError$MH().invokeExact();
+        } catch (Throwable ex) {
+            throw new AssertionError(ex);
+        }
+    }
+    static final MethodHandle GetLastError$MH_ = RuntimeHelper.downcallHandle(
+            LIBRARIES, "GetLastError",
+            "()I",
+            GetLastError$FUNC_, false
+    );
+    static final MethodHandle GetLastError$MH() { return GetLastError$MH_; }
+    static final FunctionDescriptor ShowWindow$FUNC_ = FunctionDescriptor.of(C_INT,
+            C_POINTER,
+            C_INT
+    );
+    static final jdk.incubator.foreign.FunctionDescriptor ShowWindow$FUNC() { return ShowWindow$FUNC_; }
+
+    static final MethodHandle ShowWindow$MH_ = RuntimeHelper.downcallHandle(
+            LIBRARIES, "ShowWindow",
+            "(Ljdk/incubator/foreign/MemoryAddress;I)I",
+            ShowWindow$FUNC_, false
+    );
+    static final MethodHandle ShowWindow$MH() { return ShowWindow$MH_; }
+    public static @C("BOOL") int ShowWindow (@C("HWND") Addressable hWnd, @C("int") int nCmdShow) {
+        try {
+            return (int)ShowWindow$MH().invokeExact(hWnd.address(), nCmdShow);
+        } catch (Throwable ex) {
+            throw new AssertionError(ex);
+        }
+    }
+    static final int SW_SHOW() { return (int)5L; }
+
     public static void createWindow(NativeScope scope) {
         MemorySegment pWindowClass = tagWNDCLASSEXW.allocate(scope);
         tagWNDCLASSEXW.cbSize$set(pWindowClass, (int) tagWNDCLASSEXW.sizeof());
@@ -446,8 +530,21 @@ public class DX12 {
         }
         MemorySegment winProcFunc = CLinker.getInstance().upcallStub(winProcHandle, WindowProc);
         tagWNDCLASSEXW.lpfnWndProc$set(pWindowClass, winProcFunc.address());
-        tagWNDCLASSEXW.lpszClassName$set(pWindowClass, CLinker.toCString("Java DX12", StandardCharsets.UTF_16LE).address());
-        RegisterClassExW(pWindowClass.address());
+        MemoryAddress windowName = CLinker.toCString("JavaDX12Win", StandardCharsets.UTF_16LE).address();
+        tagWNDCLASSEXW.lpszClassName$set(pWindowClass, windowName);
+        short atom = RegisterClassExW(pWindowClass.address());
+        if (atom == 0) {
+            System.out.println("Error: " + GetLastError());
+        }
+        System.out.println("RegisterClassExW return: " + atom);
+        MemoryAddress hwndMain = CreateWindowExW(0, windowName, CLinker.toCString("My Window", StandardCharsets.UTF_16LE).address(), WS_OVERLAPPEDWINDOW(), CW_USEDEFAULT(),
+                CW_USEDEFAULT(), 800, 600, MemoryAddress.NULL, MemoryAddress.NULL, MemoryAddress.NULL, MemoryAddress.NULL);
+        if (hwndMain == MemoryAddress.NULL) {
+            System.out.println("CreateWindowExW failed!");
+            System.exit(-1);
+        }
+        System.out.println("hwndMain: " + hwndMain);
+        ShowWindow(hwndMain, SW_SHOW());
         /*
         LRESULT CALLBACK WindowProc(
   _In_ HWND   hwnd,
@@ -578,6 +675,7 @@ public class DX12 {
 
             checkResult((int) MH_ID3D12Device_CreateCommandQueue.invokeExact(pDevice.address(), pQueueDesc.address(),
                     IID.IID_ID3D12CommandQueue.guid.address(), ppQueue.address()));
+            System.in.read();
         }
     }
 
