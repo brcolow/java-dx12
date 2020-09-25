@@ -1,14 +1,18 @@
 package com.dx12;
 
+import jdk.incubator.foreign.Addressable;
+import jdk.incubator.foreign.CLinker;
 import jdk.incubator.foreign.FunctionDescriptor;
 import jdk.incubator.foreign.LibraryLookup;
 import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemoryAddress;
+import jdk.incubator.foreign.MemoryHandles;
 import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.NativeScope;
 
 import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.invoke.VarHandle;
 import java.nio.charset.StandardCharsets;
@@ -27,20 +31,25 @@ import static com.dx12.dxgi_h.IDXGIAdapter1Vtbl;
 import static com.dx12.dxgi_h.IDXGIFactory1;
 import static com.dx12.dxgi_h.IDXGIFactory1Vtbl;
 
-import static jdk.incubator.foreign.CLinker.*;
+import static jdk.incubator.foreign.CLinker.C_CHAR;
+import static jdk.incubator.foreign.CLinker.C_INT;
+import static jdk.incubator.foreign.CLinker.C_LONGLONG;
+import static jdk.incubator.foreign.CLinker.C_POINTER;
+import static jdk.incubator.foreign.CLinker.C_SHORT;
+import static jdk.incubator.foreign.CLinker.getInstance;
 import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
 
 /**
  * https://github.com/Meith/DX12/tree/master/DX12
- *
+ * <p>
  * https://cr.openjdk.java.net/~mcimadamore/panama/ffi.html#appendix-full-source-code
  */
 public class DX12 {
 
     public enum IID {
-        IID_IDXGIAdapter1     (0x29038f61, 0x3839, 0x4626, 0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05),
-        IID_IDXGIFactory1     (0x770aae78, 0xf26f, 0x4dba, 0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87),
-        IID_ID3D12Device      (0x189819f1, 0x1db6, 0x4b57, 0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7),
+        IID_IDXGIAdapter1(0x29038f61, 0x3839, 0x4626, 0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05),
+        IID_IDXGIFactory1(0x770aae78, 0xf26f, 0x4dba, 0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87),
+        IID_ID3D12Device(0x189819f1, 0x1db6, 0x4b57, 0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7),
         IID_ID3D12CommandQueue(0x0ec870a6, 0x5d7e, 0x4c22, 0x8c, 0xfc, 0x5b, 0xaa, 0xe0, 0x76, 0x16, 0xed);
 
         private final MemorySegment guid;
@@ -66,7 +75,389 @@ public class DX12 {
         }
     }
 
+    static final MemoryLayout tagWNDCLASSEXW$struct$LAYOUT_ = MemoryLayout.ofStruct(
+            C_INT.withName("cbSize"),
+            C_INT.withName("style"),
+            C_POINTER.withName("lpfnWndProc"),
+            C_INT.withName("cbClsExtra"),
+            C_INT.withName("cbWndExtra"),
+            C_POINTER.withName("hInstance"),
+            C_POINTER.withName("hIcon"),
+            C_POINTER.withName("hCursor"),
+            C_POINTER.withName("hbrBackground"),
+            C_POINTER.withName("lpszMenuName"),
+            C_POINTER.withName("lpszClassName"),
+            C_POINTER.withName("hIconSm")
+    ).withName("tagWNDCLASSEXW");
+
+    static MemoryLayout tagWNDCLASSEXW$struct$LAYOUT() {
+        return tagWNDCLASSEXW$struct$LAYOUT_;
+    }
+
+    public static class tagWNDCLASSEXW {
+        static final VarHandle tagWNDCLASSEXW$cbSize$VH_ = tagWNDCLASSEXW$struct$LAYOUT_.varHandle(int.class, MemoryLayout.PathElement.groupElement("cbSize"));
+
+        static final java.lang.invoke.VarHandle tagWNDCLASSEXW$cbSize$VH() {
+            return tagWNDCLASSEXW$cbSize$VH_;
+        }
+
+        static final VarHandle tagWNDCLASSEXW$style$VH_ = tagWNDCLASSEXW$struct$LAYOUT_.varHandle(int.class, MemoryLayout.PathElement.groupElement("style"));
+
+        static final java.lang.invoke.VarHandle tagWNDCLASSEXW$style$VH() {
+            return tagWNDCLASSEXW$style$VH_;
+        }
+
+        static final VarHandle tagWNDCLASSEXW$lpfnWndProc$VH_ = MemoryHandles.asAddressVarHandle(tagWNDCLASSEXW$struct$LAYOUT_.varHandle(long.class, MemoryLayout.PathElement.groupElement("lpfnWndProc")));
+
+        static final java.lang.invoke.VarHandle tagWNDCLASSEXW$lpfnWndProc$VH() {
+            return tagWNDCLASSEXW$lpfnWndProc$VH_;
+        }
+
+        static final VarHandle tagWNDCLASSEXW$cbClsExtra$VH_ = tagWNDCLASSEXW$struct$LAYOUT_.varHandle(int.class, MemoryLayout.PathElement.groupElement("cbClsExtra"));
+
+        static final java.lang.invoke.VarHandle tagWNDCLASSEXW$cbClsExtra$VH() {
+            return tagWNDCLASSEXW$cbClsExtra$VH_;
+        }
+
+        static final VarHandle tagWNDCLASSEXW$cbWndExtra$VH_ = tagWNDCLASSEXW$struct$LAYOUT_.varHandle(int.class, MemoryLayout.PathElement.groupElement("cbWndExtra"));
+
+        static final java.lang.invoke.VarHandle tagWNDCLASSEXW$cbWndExtra$VH() {
+            return tagWNDCLASSEXW$cbWndExtra$VH_;
+        }
+
+        static final VarHandle tagWNDCLASSEXW$hInstance$VH_ = MemoryHandles.asAddressVarHandle(tagWNDCLASSEXW$struct$LAYOUT_.varHandle(long.class, MemoryLayout.PathElement.groupElement("hInstance")));
+
+        static final java.lang.invoke.VarHandle tagWNDCLASSEXW$hInstance$VH() {
+            return tagWNDCLASSEXW$hInstance$VH_;
+        }
+
+        static final VarHandle tagWNDCLASSEXW$hIcon$VH_ = MemoryHandles.asAddressVarHandle(tagWNDCLASSEXW$struct$LAYOUT_.varHandle(long.class, MemoryLayout.PathElement.groupElement("hIcon")));
+
+        static final java.lang.invoke.VarHandle tagWNDCLASSEXW$hIcon$VH() {
+            return tagWNDCLASSEXW$hIcon$VH_;
+        }
+
+        static final VarHandle tagWNDCLASSEXW$hCursor$VH_ = MemoryHandles.asAddressVarHandle(tagWNDCLASSEXW$struct$LAYOUT_.varHandle(long.class, MemoryLayout.PathElement.groupElement("hCursor")));
+
+        static final java.lang.invoke.VarHandle tagWNDCLASSEXW$hCursor$VH() {
+            return tagWNDCLASSEXW$hCursor$VH_;
+        }
+
+        static final VarHandle tagWNDCLASSEXW$hbrBackground$VH_ = MemoryHandles.asAddressVarHandle(tagWNDCLASSEXW$struct$LAYOUT_.varHandle(long.class, MemoryLayout.PathElement.groupElement("hbrBackground")));
+
+        static final java.lang.invoke.VarHandle tagWNDCLASSEXW$hbrBackground$VH() {
+            return tagWNDCLASSEXW$hbrBackground$VH_;
+        }
+
+        static final VarHandle tagWNDCLASSEXW$lpszMenuName$VH_ = MemoryHandles.asAddressVarHandle(tagWNDCLASSEXW$struct$LAYOUT_.varHandle(long.class, MemoryLayout.PathElement.groupElement("lpszMenuName")));
+
+        static final java.lang.invoke.VarHandle tagWNDCLASSEXW$lpszMenuName$VH() {
+            return tagWNDCLASSEXW$lpszMenuName$VH_;
+        }
+
+        static final VarHandle tagWNDCLASSEXW$lpszClassName$VH_ = MemoryHandles.asAddressVarHandle(tagWNDCLASSEXW$struct$LAYOUT_.varHandle(long.class, MemoryLayout.PathElement.groupElement("lpszClassName")));
+
+        static final java.lang.invoke.VarHandle tagWNDCLASSEXW$lpszClassName$VH() {
+            return tagWNDCLASSEXW$lpszClassName$VH_;
+        }
+
+        static final VarHandle tagWNDCLASSEXW$hIconSm$VH_ = MemoryHandles.asAddressVarHandle(tagWNDCLASSEXW$struct$LAYOUT_.varHandle(long.class, MemoryLayout.PathElement.groupElement("hIconSm")));
+
+        static final java.lang.invoke.VarHandle tagWNDCLASSEXW$hIconSm$VH() {
+            return tagWNDCLASSEXW$hIconSm$VH_;
+        }
+
+
+        private tagWNDCLASSEXW() {
+        }
+
+        public static MemoryLayout $LAYOUT() {
+            return tagWNDCLASSEXW$struct$LAYOUT();
+        }
+
+        public static VarHandle cbSize$VH() {
+            return tagWNDCLASSEXW$cbSize$VH();
+        }
+
+        public static @C("UINT") int cbSize$get(@C("struct tagWNDCLASSEXW") MemorySegment seg) {
+            return (int) tagWNDCLASSEXW$cbSize$VH().get(seg);
+        }
+
+        public static @C("UINT") int cbSize$get(@C("struct tagWNDCLASSEXW") MemorySegment seg, long index) {
+            return (int) tagWNDCLASSEXW$cbSize$VH().get(seg.asSlice(index * sizeof()));
+        }
+
+        public static void cbSize$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, @C("UINT") int x) {
+            tagWNDCLASSEXW$cbSize$VH().set(seg, x);
+        }
+
+        public static void cbSize$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, long index, @C("UINT") int x) {
+            tagWNDCLASSEXW$cbSize$VH().set(seg.asSlice(index * sizeof()), x);
+        }
+
+        public static VarHandle style$VH() {
+            return tagWNDCLASSEXW$style$VH();
+        }
+
+        public static void style$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, @C("UINT") int x) {
+            tagWNDCLASSEXW$style$VH().set(seg, x);
+        }
+
+        public static void style$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, long index, @C("UINT") int x) {
+            tagWNDCLASSEXW$style$VH().set(seg.asSlice(index * sizeof()), x);
+        }
+
+        public static VarHandle lpfnWndProc$VH() {
+            return tagWNDCLASSEXW$lpfnWndProc$VH();
+        }
+
+        public static void lpfnWndProc$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, @C("WNDPROC") MemoryAddress x) {
+            tagWNDCLASSEXW$lpfnWndProc$VH().set(seg, x);
+        }
+
+        public static void lpfnWndProc$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, long index, @C("WNDPROC") MemoryAddress x) {
+            tagWNDCLASSEXW$lpfnWndProc$VH().set(seg.asSlice(index * sizeof()), x);
+        }
+
+        public static VarHandle cbClsExtra$VH() {
+            return tagWNDCLASSEXW$cbClsExtra$VH();
+        }
+
+        public static void cbClsExtra$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, @C("int") int x) {
+            tagWNDCLASSEXW$cbClsExtra$VH().set(seg, x);
+        }
+
+        public static void cbClsExtra$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, long index, @C("int") int x) {
+            tagWNDCLASSEXW$cbClsExtra$VH().set(seg.asSlice(index * sizeof()), x);
+        }
+
+        public static VarHandle cbWndExtra$VH() {
+            return tagWNDCLASSEXW$cbWndExtra$VH();
+        }
+
+        public static void cbWndExtra$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, @C("int") int x) {
+            tagWNDCLASSEXW$cbWndExtra$VH().set(seg, x);
+        }
+
+        public static void cbWndExtra$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, long index, @C("int") int x) {
+            tagWNDCLASSEXW$cbWndExtra$VH().set(seg.asSlice(index * sizeof()), x);
+        }
+
+        public static VarHandle hInstance$VH() {
+            return tagWNDCLASSEXW$hInstance$VH();
+        }
+
+        public static void hInstance$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, @C("HINSTANCE") MemoryAddress x) {
+            tagWNDCLASSEXW$hInstance$VH().set(seg, x);
+        }
+
+        public static void hInstance$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, long index, @C("HINSTANCE") MemoryAddress x) {
+            tagWNDCLASSEXW$hInstance$VH().set(seg.asSlice(index * sizeof()), x);
+        }
+
+        public static VarHandle hIcon$VH() {
+            return tagWNDCLASSEXW$hIcon$VH();
+        }
+
+        public static void hIcon$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, @C("HICON") MemoryAddress x) {
+            tagWNDCLASSEXW$hIcon$VH().set(seg, x);
+        }
+
+        public static void hIcon$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, long index, @C("HICON") MemoryAddress x) {
+            tagWNDCLASSEXW$hIcon$VH().set(seg.asSlice(index * sizeof()), x);
+        }
+
+        public static VarHandle hCursor$VH() {
+            return tagWNDCLASSEXW$hCursor$VH();
+        }
+
+        public static void hCursor$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, @C("HCURSOR") MemoryAddress x) {
+            tagWNDCLASSEXW$hCursor$VH().set(seg, x);
+        }
+
+        public static void hCursor$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, long index, @C("HCURSOR") MemoryAddress x) {
+            tagWNDCLASSEXW$hCursor$VH().set(seg.asSlice(index * sizeof()), x);
+        }
+
+        public static VarHandle hbrBackground$VH() {
+            return tagWNDCLASSEXW$hbrBackground$VH();
+        }
+
+        public static void hbrBackground$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, @C("HBRUSH") MemoryAddress x) {
+            tagWNDCLASSEXW$hbrBackground$VH().set(seg, x);
+        }
+
+        public static void hbrBackground$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, long index, @C("HBRUSH") MemoryAddress x) {
+            tagWNDCLASSEXW$hbrBackground$VH().set(seg.asSlice(index * sizeof()), x);
+        }
+
+        public static VarHandle lpszMenuName$VH() {
+            return tagWNDCLASSEXW$lpszMenuName$VH();
+        }
+
+        public static void lpszMenuName$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, @C("LPCWSTR") MemoryAddress x) {
+            tagWNDCLASSEXW$lpszMenuName$VH().set(seg, x);
+        }
+
+        public static void lpszMenuName$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, long index, @C("LPCWSTR") MemoryAddress x) {
+            tagWNDCLASSEXW$lpszMenuName$VH().set(seg.asSlice(index * sizeof()), x);
+        }
+
+        public static VarHandle lpszClassName$VH() {
+            return tagWNDCLASSEXW$lpszClassName$VH();
+        }
+
+        public static void lpszClassName$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, @C("LPCWSTR") MemoryAddress x) {
+            tagWNDCLASSEXW$lpszClassName$VH().set(seg, x);
+        }
+
+        public static void lpszClassName$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, long index, @C("LPCWSTR") MemoryAddress x) {
+            tagWNDCLASSEXW$lpszClassName$VH().set(seg.asSlice(index * sizeof()), x);
+        }
+
+        public static VarHandle hIconSm$VH() {
+            return tagWNDCLASSEXW$hIconSm$VH();
+        }
+
+        public static void hIconSm$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, @C("HICON") MemoryAddress x) {
+            tagWNDCLASSEXW$hIconSm$VH().set(seg, x);
+        }
+
+        public static void hIconSm$set(@C("struct tagWNDCLASSEXW") MemorySegment seg, long index, @C("HICON") MemoryAddress x) {
+            tagWNDCLASSEXW$hIconSm$VH().set(seg.asSlice(index * sizeof()), x);
+        }
+
+        public static long sizeof() {
+            return $LAYOUT().byteSize();
+        }
+
+        public static @C("struct tagWNDCLASSEXW") MemorySegment allocate() {
+            return MemorySegment.allocateNative($LAYOUT());
+        }
+
+        public static @C("struct tagWNDCLASSEXW") MemorySegment allocate(NativeScope scope) {
+            return scope.allocate($LAYOUT());
+        }
+
+        public static @C("struct tagWNDCLASSEXW[]") MemorySegment allocateArray(int len) {
+            return MemorySegment.allocateNative(MemoryLayout.ofSequence(len, $LAYOUT()));
+        }
+
+        public static @C("struct tagWNDCLASSEXW[]") MemorySegment allocateArray(int len, NativeScope scope) {
+            return scope.allocate(MemoryLayout.ofSequence(len, $LAYOUT()));
+        }
+
+        public static @C("struct tagWNDCLASSEXW*") MemorySegment allocatePointer() {
+            return MemorySegment.allocateNative(C_POINTER);
+        }
+
+        public static @C("struct tagWNDCLASSEXW*") MemorySegment allocatePointer(NativeScope scope) {
+            return scope.allocate(C_POINTER);
+        }
+
+        public static @C("struct tagWNDCLASSEXW") MemorySegment ofAddressRestricted(MemoryAddress addr) {
+            return RuntimeHelper.asArrayRestricted(addr, $LAYOUT(), 1);
+        }
+    }
+
+    public static @C("struct tagWNDCLASSEXW") class WNDCLASSEXW extends tagWNDCLASSEXW {
+        private WNDCLASSEXW() {
+        }
+    }
+
+    public static @C("int") int CS_VREDRAW() {
+        return (int) 1L;
+    }
+
+    public static @C("int") int CS_HREDRAW() {
+        return (int) 2L;
+    }
+
+    static final FunctionDescriptor WindowProc = FunctionDescriptor.of(C_LONGLONG,
+            C_POINTER,
+            C_INT,
+            C_LONGLONG,
+            C_LONGLONG
+    );
+    static final FunctionDescriptor LoadCursorW$FUNC_ = FunctionDescriptor.of(C_POINTER,
+            C_POINTER,
+            C_POINTER
+    );
+    static final LibraryLookup[] LIBRARIES = RuntimeHelper.libraries(new String[]{});
+
+    static final MethodHandle LoadCursorW$MH_ = RuntimeHelper.downcallHandle(
+            LIBRARIES, "LoadCursorW",
+            "(Ljdk/incubator/foreign/MemoryAddress;Ljdk/incubator/foreign/MemoryAddress;)Ljdk/incubator/foreign/MemoryAddress;",
+            LoadCursorW$FUNC_, false
+    );
+
+    public static @C("HCURSOR") MemoryAddress LoadCursorW(@C("HINSTANCE") Addressable hInstance, @C("LPCWSTR") Addressable lpCursorName) {
+        try {
+            return (MemoryAddress) LoadCursorW$MH_.invokeExact(hInstance.address(), lpCursorName.address());
+        } catch (Throwable ex) {
+            throw new AssertionError(ex);
+        }
+    }
+
+    static final MemoryAddress IDC_ARROW$ADDR_CONSTANT_ = MemoryAddress.ofLong(32512L);
+
+    static MemoryAddress IDC_ARROW() {
+        return IDC_ARROW$ADDR_CONSTANT_;
+    }
+
+    static final FunctionDescriptor RegisterClassExW$FUNC_ = FunctionDescriptor.of(C_SHORT,
+            C_POINTER
+    );
+
+    static final MethodHandle RegisterClassExW$MH_ = RuntimeHelper.downcallHandle(
+            LIBRARIES, "RegisterClassExW",
+            "(Ljdk/incubator/foreign/MemoryAddress;)S",
+            RegisterClassExW$FUNC_, false
+    );
+
+    static MethodHandle RegisterClassExW$MH() {
+        return RegisterClassExW$MH_;
+    }
+
+    public static @C("ATOM") short RegisterClassExW(@C("const WNDCLASSEXW*") Addressable x0) {
+        try {
+            return (short) RegisterClassExW$MH().invokeExact(x0.address());
+        } catch (Throwable ex) {
+            throw new AssertionError(ex);
+        }
+    }
+
     public static void createWindow(NativeScope scope) {
+        MemorySegment pWindowClass = tagWNDCLASSEXW.allocate(scope);
+        tagWNDCLASSEXW.cbSize$set(pWindowClass, (int) tagWNDCLASSEXW.sizeof());
+        tagWNDCLASSEXW.style$set(pWindowClass, CS_HREDRAW() | CS_VREDRAW());
+        // https://stackoverflow.com/questions/25341565/how-do-i-obtain-the-hinstance-for-the-createwindowex-function-when-using-it-outs
+        tagWNDCLASSEXW.hInstance$set(pWindowClass, MemoryAddress.NULL);
+        tagWNDCLASSEXW.hCursor$set(pWindowClass, LoadCursorW(MemoryAddress.NULL, IDC_ARROW()));
+
+        MethodHandle winProcHandle;
+        try {
+            winProcHandle = MethodHandles.lookup()
+                    .findStatic(WindowProc.class, "WindowProc",
+                            MethodType.methodType(long.class, MemoryAddress.class, int.class, long.class, long.class));
+        } catch (NoSuchMethodException | IllegalAccessException ex) {
+            ex.printStackTrace();
+            throw new RuntimeException(ex);
+        }
+        MemorySegment winProcFunc = CLinker.getInstance().upcallStub(winProcHandle, WindowProc);
+        tagWNDCLASSEXW.lpfnWndProc$set(pWindowClass, winProcFunc.address());
+        tagWNDCLASSEXW.lpszClassName$set(pWindowClass, CLinker.toCString("Java DX12", StandardCharsets.UTF_16LE).address());
+        RegisterClassExW(pWindowClass.address());
+        /*
+        LRESULT CALLBACK WindowProc(
+  _In_ HWND   hwnd,
+  _In_ UINT   uMsg,
+  _In_ WPARAM wParam,
+  _In_ LPARAM lParam
+);
+         */
+        // https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/Desktop/D3D12HDR/src/Win32Application.cpp
+
         //MemorySegment pwindowClass = tagWNDCLASSEXW.allocate(scope);
         // Windows.h extraction not working yet, see: https://bugs.openjdk.java.net/browse/JDK-8253390
         /*
@@ -98,6 +489,7 @@ public class DX12 {
                 pSample);
          */
     }
+
     public static void main(String[] args) throws Throwable {
         LibraryLookup user32 = LibraryLookup.ofLibrary("user32");
         LibraryLookup d3d12 = LibraryLookup.ofLibrary("D3D12");
@@ -117,7 +509,7 @@ public class DX12 {
             MemoryAddress addrEnumAdapters = IDXGIFactory1Vtbl.EnumAdapters1$get(vtbl);
 
             // link the pointer
-            MethodHandle MH_EnumAdapters1 = getSystemLinker().downcallHandle(
+            MethodHandle MH_EnumAdapters1 = getInstance().downcallHandle(
                     addrEnumAdapters,
                     MethodType.methodType(int.class, MemoryAddress.class, int.class, MemoryAddress.class),
                     FunctionDescriptor.of(C_INT, C_POINTER, C_INT, C_POINTER));
@@ -135,7 +527,7 @@ public class DX12 {
             MemoryAddress addrGetDesc1 = IDXGIAdapter1Vtbl.GetDesc1$get(vtbl2);
 
             // link the pointer
-            MethodHandle MH_GetDesc1 = getSystemLinker().downcallHandle(
+            MethodHandle MH_GetDesc1 = getInstance().downcallHandle(
                     addrGetDesc1,
                     MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class),
                     FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER));
@@ -166,7 +558,7 @@ public class DX12 {
             // D3D12_COMMAND_QUEUE_DESC queueDesc = {};
             // queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
             // queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-            MemorySegment pQueueDesc =  D3D12_COMMAND_QUEUE_DESC.allocate(scope);
+            MemorySegment pQueueDesc = D3D12_COMMAND_QUEUE_DESC.allocate(scope);
             // This is unnecessary:
             // You already have a fully readable/writable segment for the struct
             // you should only use `asSegment` if you get a MemoryAddress from the library, but you want to turn it into
@@ -176,7 +568,7 @@ public class DX12 {
             D3D12_COMMAND_QUEUE_DESC.Flags$set(pQueueDesc, D3D12_COMMAND_QUEUE_FLAG_NONE());
 
             // link the pointer (first MemoryAddress argument is the (this) pointer (C++ => C)
-            MethodHandle MH_ID3D12Device_CreateCommandQueue = getSystemLinker().downcallHandle(
+            MethodHandle MH_ID3D12Device_CreateCommandQueue = getInstance().downcallHandle(
                     addrCreateCommandQueue,
                     MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
                     FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER, C_POINTER, C_POINTER));
@@ -190,14 +582,15 @@ public class DX12 {
     }
 
     public static MemorySegment asSegment(MemoryAddress addr, MemoryLayout layout) {
-        return MemorySegment.ofNativeRestricted(addr, layout.byteSize(), Thread.currentThread(), null, null);
+        return addr.asSegmentRestricted(layout.byteSize());
     }
 
     private static final int S_OK = 0x00000000;
 
     private static void checkResult(int result) {
         switch (result) {
-            case S_OK -> {}
+            case S_OK -> {
+            }
             default -> throw new IllegalStateException("Unknown result: " + String.format("%X8", result));
         }
     }
