@@ -26,10 +26,14 @@ import static com.dx12.d3d12_h.ID3D12CommandQueue;
 import static com.dx12.d3d12_h.ID3D12Device;
 import static com.dx12.d3d12_h.ID3D12DeviceVtbl;
 import static com.dx12.dxgi_h.DXGI_ADAPTER_DESC1;
+import static com.dx12.dxgi_h.DXGI_MODE_DESC;
+import static com.dx12.dxgi_h.DXGI_SAMPLE_DESC;
+import static com.dx12.dxgi_h.DXGI_SWAP_CHAIN_DESC;
 import static com.dx12.dxgi_h.IDXGIAdapter1;
 import static com.dx12.dxgi_h.IDXGIAdapter1Vtbl;
 import static com.dx12.dxgi_h.IDXGIFactory1;
 import static com.dx12.dxgi_h.IDXGIFactory1Vtbl;
+import static com.dx12.dxgi_h.IDXGISwapChain;
 
 import static jdk.incubator.foreign.CLinker.C_CHAR;
 import static jdk.incubator.foreign.CLinker.C_INT;
@@ -46,11 +50,215 @@ import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
  * https://cr.openjdk.java.net/~mcimadamore/panama/ffi.html#appendix-full-source-code
  */
 public class DX12 {
+    public static MemoryAddress createWindow(NativeScope scope) {
+        MemorySegment pWindowClass = tagWNDCLASSEXW.allocate(scope);
+        tagWNDCLASSEXW.cbSize$set(pWindowClass, (int) tagWNDCLASSEXW.sizeof());
+        tagWNDCLASSEXW.style$set(pWindowClass, CS_HREDRAW() | CS_VREDRAW());
+        // https://stackoverflow.com/questions/25341565/how-do-i-obtain-the-hinstance-for-the-createwindowex-function-when-using-it-outs
+        tagWNDCLASSEXW.hInstance$set(pWindowClass, MemoryAddress.NULL);
+        tagWNDCLASSEXW.hCursor$set(pWindowClass, LoadCursorW(MemoryAddress.NULL, IDC_ARROW()));
+
+        MethodHandle winProcHandle;
+        try {
+            winProcHandle = MethodHandles.lookup()
+                    .findStatic(WindowProc.class, "WindowProc",
+                            MethodType.methodType(long.class, MemoryAddress.class, int.class, long.class, long.class));
+        } catch (NoSuchMethodException | IllegalAccessException ex) {
+            ex.printStackTrace();
+            throw new RuntimeException(ex);
+        }
+        MemorySegment winProcFunc = CLinker.getInstance().upcallStub(winProcHandle, WindowProc);
+        tagWNDCLASSEXW.lpfnWndProc$set(pWindowClass, winProcFunc.address());
+        MemoryAddress windowName = CLinker.toCString("JavaDX12Win", StandardCharsets.UTF_16LE).address();
+        tagWNDCLASSEXW.lpszClassName$set(pWindowClass, windowName);
+        short atom = RegisterClassExW(pWindowClass.address());
+        if (atom == 0) {
+            System.out.println("RegisterClassExW failed!");
+            System.out.println("Error: " + GetLastError());
+            System.exit(-1);
+        }
+        System.out.println("RegisterClassExW return: " + atom);
+        MemoryAddress hwndMain = CreateWindowExW(0, windowName,
+                CLinker.toCString("My Window", StandardCharsets.UTF_16LE).address(), WS_OVERLAPPEDWINDOW(), CW_USEDEFAULT(),
+                CW_USEDEFAULT(), 800, 600, MemoryAddress.NULL, MemoryAddress.NULL, MemoryAddress.NULL, MemoryAddress.NULL);
+        if (hwndMain == MemoryAddress.NULL) {
+            System.out.println("CreateWindowExW failed!");
+            System.exit(-1);
+        }
+        System.out.println("hwndMain: " + hwndMain);
+        ShowWindow(hwndMain, SW_SHOW());
+        return hwndMain;
+    }
+
+    public static void main(String[] args) throws Throwable {
+        // TODO: Create a utility to check what Windows version we are running on, and then what Windows versions
+        // introduced which version of the various class like ID3D12Device1, 2, 3, etc.
+        LibraryLookup user32 = LibraryLookup.ofLibrary("user32");
+        LibraryLookup d3d12 = LibraryLookup.ofLibrary("D3D12");
+        LibraryLookup dxgi = LibraryLookup.ofLibrary("dxgi");
+        try (NativeScope scope = NativeScope.unboundedScope()) {
+            MemoryAddress hwndMain = createWindow(scope);
+            // IDXGIFactory1** dxgiFactory;
+            var ppDxgiFactory = IDXGIFactory1.allocatePointer(scope);
+            // HRESULT = CreateDXGIFactory1(_uuid(dxgiFactory), &dxgiFactory))
+            checkResult(dxgi_h.CreateDXGIFactory1(IID.IID_IDXGIFactory1.guid, ppDxgiFactory));
+            // IDXGIFactory1*
+            MemorySegment pDxgiFactory = asSegment(MemoryAccess.getAddress(ppDxgiFactory), IDXGIFactory1.$LAYOUT());
+
+            // (This)->lpVtbl
+            MemorySegment dxgiFactoryVtbl = asSegment(IDXGIFactory1.lpVtbl$get(pDxgiFactory), IDXGIFactory1Vtbl.$LAYOUT());
+            // lpVtbl->EnumAdapters1
+            MemoryAddress enumAdaptersAddr = IDXGIFactory1Vtbl.EnumAdapters1$get(dxgiFactoryVtbl);
+
+            // link the pointer
+            MethodHandle EnumAdapters1MethodHandle = getInstance().downcallHandle(
+                    enumAdaptersAddr,
+                    MethodType.methodType(int.class, MemoryAddress.class, int.class, MemoryAddress.class),
+                    FunctionDescriptor.of(C_INT, C_POINTER, C_INT, C_POINTER));
+
+            /* [annotation][out] _COM_Outptr_  IDXGIAdapter1** */
+            MemorySegment ppOut = IDXGIAdapter1.allocatePointer(scope);
+            checkResult((int) EnumAdapters1MethodHandle.invokeExact(pDxgiFactory.address(), 0, ppOut.address()));
+            // IDXGIAdapter1*
+            MemorySegment pAdapter = asSegment(MemoryAccess.getAddress(ppOut), IDXGIAdapter1.$LAYOUT());
+
+            // (This)->lpVtbl
+            MemorySegment dxgiAdapterVtbl = asSegment(IDXGIAdapter1.lpVtbl$get(pAdapter), IDXGIAdapter1Vtbl.$LAYOUT());
+            // lpVtbl->EnumAdapters1
+            // HRESULT(*)(IDXGIAdapter1*,DXGI_ADAPTER_DESC1*)
+            MemoryAddress getDesc1Addr = IDXGIAdapter1Vtbl.GetDesc1$get(dxgiAdapterVtbl);
+
+            // link the pointer
+            MethodHandle getDesc1MethodHandle = getInstance().downcallHandle(
+                    getDesc1Addr,
+                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class),
+                    FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER));
+
+            /* DXGI_ADAPTER_DESC1* */
+            MemorySegment pDesc = DXGI_ADAPTER_DESC1.allocate(scope);
+            checkResult((int) getDesc1MethodHandle.invokeExact(pAdapter.address(), pDesc.address()));
+
+            // print description
+            MemorySegment descStr = DXGI_ADAPTER_DESC1.Description$slice(pDesc);
+            String str = new String(descStr.toByteArray(), StandardCharsets.UTF_16LE);
+            System.out.println(str);
+
+            // ID3D12Device** d3d12Device;
+            var ppDevice = ID3D12Device.allocatePointer(scope);
+
+            // D3D12CreateDevice(pAdapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&ppDevice))
+            checkResult(D3D12CreateDevice(pAdapter, (int) 45056L, IID.IID_ID3D12Device.guid, ppDevice));
+            // ID3D12Device*
+            MemorySegment pDevice = asSegment(MemoryAccess.getAddress(ppDevice), ID3D12Device.$LAYOUT());
+
+            // (This)->lpVtbl
+            MemorySegment deviceVtbl = asSegment(ID3D12Device.lpVtbl$get(pDevice), ID3D12DeviceVtbl.$LAYOUT());
+
+            // lpVtbl->CreateCommandQueue
+            MemoryAddress createCommandQueueAddr = ID3D12DeviceVtbl.CreateCommandQueue$get(deviceVtbl);
+
+            // D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+            // queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+            // queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+            MemorySegment pQueueDesc = D3D12_COMMAND_QUEUE_DESC.allocate(scope);
+            // This is unnecessary:
+            // You already have a fully readable/writable segment for the struct
+            // you should only use `asSegment` if you get a MemoryAddress from the library, but you want to turn it into
+            // a memory segment with certain known size (so that you can read and write from it).
+            //MemorySegment queueDesc = asSegment(pQueueDesc.address(), D3D12_COMMAND_QUEUE_DESC.$LAYOUT());
+            D3D12_COMMAND_QUEUE_DESC.Type$set(pQueueDesc, D3D12_COMMAND_LIST_TYPE_DIRECT());
+            D3D12_COMMAND_QUEUE_DESC.Flags$set(pQueueDesc, D3D12_COMMAND_QUEUE_FLAG_NONE());
+
+            // link the pointer (first MemoryAddress argument is the (this) pointer (C++ => C))
+            MethodHandle MH_ID3D12Device_CreateCommandQueue = getInstance().downcallHandle(
+                    createCommandQueueAddr,
+                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
+                    FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER, C_POINTER, C_POINTER));
+
+            // ID3D12CommandQueue**
+            var ppQueue = ID3D12CommandQueue.allocatePointer(scope);
+
+            checkResult((int) MH_ID3D12Device_CreateCommandQueue.invokeExact(pDevice.address(), pQueueDesc.address(),
+                    IID.IID_ID3D12CommandQueue.guid.address(), ppQueue.address()));
+
+            /*
+            DXGI_SWAP_CHAIN_DESC result = { };
+            result.BufferDesc.Width = x;
+            result.BufferDesc.Height = y;
+            result.BufferDesc.Format = format;
+            result.SampleDesc.Count = 1;
+            result.SampleDesc.Quality = 0;
+            result.BufferUsage = usage;
+            result.BufferCount = bufferCount;
+            result.OutputWindow = hWnd;
+            result.Windowed = true;
+            result.SwapEffect = swapEffect;
+            result.Flags = 0;
+
+            dxgiFactory->CreateSwapChain(..)
+             */
+            // FIXME: We want to use: CreateSwapChainForHwnd not CreateSwapChain!
+            // https://docs.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgifactory2-createswapchainforhwnd
+            MemorySegment pSwapChainDesc = DXGI_SWAP_CHAIN_DESC.allocate(scope);
+            //MemorySegment pBufferDesc = DXGI_MODE_DESC.allocate(scope);
+            //DXGI_MODE_DESC.Width$set(pBufferDesc, 0);
+            //DXGI_MODE_DESC.Height$set(pBufferDesc, 0);
+            //DXGI_MODE_DESC.Format$set(pBufferDesc, DXGI_FORMAT_R8G8B8A8_UNORM());
+            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("BufferDesc"), MemoryLayout.PathElement.groupElement("Width")).set(pSwapChainDesc, 0);
+            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("BufferDesc"), MemoryLayout.PathElement.groupElement("Height")).set(pSwapChainDesc, 0);
+            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("BufferDesc"), MemoryLayout.PathElement.groupElement("Format")).set(pSwapChainDesc, DXGI_FORMAT_R8G8B8A8_UNORM());
+
+            //DXGI_SWAP_CHAIN_DESC.BufferDesc$slice(pSwapChainDesc).
+            //System.out.println("buffer desc segment: " + DXGI_MODE_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("Width")));
+            //MemorySegment pSampleDesc = DXGI_SAMPLE_DESC.allocate(scope);
+            //DXGI_SAMPLE_DESC.Count$set(pSampleDesc, 1); // The number of multisamples per pixel.
+            //DXGI_SAMPLE_DESC.Quality$set(pSampleDesc, 0); // The image quality level.
+            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("SampleDesc"), MemoryLayout.PathElement.groupElement("Count")).set(pSwapChainDesc, 1);
+            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("SampleDesc"), MemoryLayout.PathElement.groupElement("Quality")).set(pSwapChainDesc, 0);
+            // This is out of bounds...
+            //DXGI_SWAP_CHAIN_DESC.SampleDesc$slice(pSwapChainDesc);
+            DXGI_SWAP_CHAIN_DESC.BufferUsage$set(pSwapChainDesc, DXGI_USAGE_RENDER_TARGET_OUTPUT());
+            DXGI_SWAP_CHAIN_DESC.BufferCount$set(pSwapChainDesc, 1);
+            DXGI_SWAP_CHAIN_DESC.OutputWindow$set(pSwapChainDesc, hwndMain.address());
+            DXGI_SWAP_CHAIN_DESC.Windowed$set(pSwapChainDesc, 0);
+            DXGI_SWAP_CHAIN_DESC.SwapEffect$set(pSwapChainDesc, DXGI_SWAP_EFFECT_SEQUENTIAL());
+            DXGI_SWAP_CHAIN_DESC.Flags$set(pSwapChainDesc, 0);
+            MemoryAddress addrCreateSwapChain = IDXGIFactory1Vtbl.CreateSwapChain$get(dxgiFactoryVtbl);
+            MethodHandle createSwapChainMethodHandle = getInstance().downcallHandle(
+                    addrCreateSwapChain,
+                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
+                    FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER, C_POINTER));
+            MemorySegment ppSwapChain = IDXGISwapChain.allocatePointer(scope);
+            int result = (int) createSwapChainMethodHandle.invokeExact(pDxgiFactory.address(), pDevice.address(), ppSwapChain.address());
+
+            System.out.println("CreateSwapChain result: " + String.format("%X8", result));
+            System.in.read();
+        }
+    }
+
+    public static MemorySegment asSegment(MemoryAddress addr, MemoryLayout layout) {
+        return addr.asSegmentRestricted(layout.byteSize());
+    }
+
+    private static final int S_OK = 0x00000000;
+
+    private static void checkResult(int result) {
+        switch (result) {
+            case S_OK -> {
+            }
+            default -> throw new IllegalStateException("Unknown result: " + String.format("%X8", result));
+        }
+    }
 
     public enum IID {
+        // https://github.com/terrafx/terrafx.interop.windows/blob/2d5817519219dc963dbe08baa67997c2821befc4/sources/Interop/Windows/um/d3d12/Windows.cs#L180
         IID_IDXGIAdapter1(0x29038f61, 0x3839, 0x4626, 0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05),
+        IID_IDXGIAdapter4(0x3c8d99d1, 0x4fbf, 0x4181, 0xa8, 0x2c, 0xaf, 0x66, 0xbf, 0x7b, 0xd2, 0x4e),
         IID_IDXGIFactory1(0x770aae78, 0xf26f, 0x4dba, 0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87),
+        IID_IDXGIFactory7(0xa4966eed, 0x76db, 0x44da, 0x84, 0xc1, 0xee, 0x9a, 0x7a, 0xfb, 0x20, 0xa8),
         IID_ID3D12Device(0x189819f1, 0x1db6, 0x4b57, 0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7),
+        IID_ID3D12Device5(0x8b4f173b, 0x2fea, 0x4b80, 0x8f, 0x58, 0x43, 0x07, 0x19, 0x1a, 0xb9, 0x5d),
+        IID_ID3D12Device8(0x9218e6bb, 0xf944, 0x4f7e, 0xa7, 0x5c, 0xb1, 0xb2, 0xc7, 0xb7, 0x01, 0xf3),
         IID_ID3D12CommandQueue(0x0ec870a6, 0x5d7e, 0x4c22, 0x8c, 0xfc, 0x5b, 0xaa, 0xe0, 0x76, 0x16, 0xed);
 
         private final MemorySegment guid;
@@ -511,185 +719,8 @@ public class DX12 {
     }
     static final int SW_SHOW() { return (int)5L; }
 
-    public static void createWindow(NativeScope scope) {
-        MemorySegment pWindowClass = tagWNDCLASSEXW.allocate(scope);
-        tagWNDCLASSEXW.cbSize$set(pWindowClass, (int) tagWNDCLASSEXW.sizeof());
-        tagWNDCLASSEXW.style$set(pWindowClass, CS_HREDRAW() | CS_VREDRAW());
-        // https://stackoverflow.com/questions/25341565/how-do-i-obtain-the-hinstance-for-the-createwindowex-function-when-using-it-outs
-        tagWNDCLASSEXW.hInstance$set(pWindowClass, MemoryAddress.NULL);
-        tagWNDCLASSEXW.hCursor$set(pWindowClass, LoadCursorW(MemoryAddress.NULL, IDC_ARROW()));
+    static final int DXGI_FORMAT_R8G8B8A8_UNORM() { return (int)28L; }
+    static final int DXGI_USAGE_RENDER_TARGET_OUTPUT() { return (int)32L; }
+    static final int DXGI_SWAP_EFFECT_SEQUENTIAL() { return (int)1L; }
 
-        MethodHandle winProcHandle;
-        try {
-            winProcHandle = MethodHandles.lookup()
-                    .findStatic(WindowProc.class, "WindowProc",
-                            MethodType.methodType(long.class, MemoryAddress.class, int.class, long.class, long.class));
-        } catch (NoSuchMethodException | IllegalAccessException ex) {
-            ex.printStackTrace();
-            throw new RuntimeException(ex);
-        }
-        MemorySegment winProcFunc = CLinker.getInstance().upcallStub(winProcHandle, WindowProc);
-        tagWNDCLASSEXW.lpfnWndProc$set(pWindowClass, winProcFunc.address());
-        MemoryAddress windowName = CLinker.toCString("JavaDX12Win", StandardCharsets.UTF_16LE).address();
-        tagWNDCLASSEXW.lpszClassName$set(pWindowClass, windowName);
-        short atom = RegisterClassExW(pWindowClass.address());
-        if (atom == 0) {
-            System.out.println("Error: " + GetLastError());
-        }
-        System.out.println("RegisterClassExW return: " + atom);
-        MemoryAddress hwndMain = CreateWindowExW(0, windowName, CLinker.toCString("My Window", StandardCharsets.UTF_16LE).address(), WS_OVERLAPPEDWINDOW(), CW_USEDEFAULT(),
-                CW_USEDEFAULT(), 800, 600, MemoryAddress.NULL, MemoryAddress.NULL, MemoryAddress.NULL, MemoryAddress.NULL);
-        if (hwndMain == MemoryAddress.NULL) {
-            System.out.println("CreateWindowExW failed!");
-            System.exit(-1);
-        }
-        System.out.println("hwndMain: " + hwndMain);
-        ShowWindow(hwndMain, SW_SHOW());
-        /*
-        LRESULT CALLBACK WindowProc(
-  _In_ HWND   hwnd,
-  _In_ UINT   uMsg,
-  _In_ WPARAM wParam,
-  _In_ LPARAM lParam
-);
-         */
-        // https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/Desktop/D3D12HDR/src/Win32Application.cpp
-
-        //MemorySegment pwindowClass = tagWNDCLASSEXW.allocate(scope);
-        // Windows.h extraction not working yet, see: https://bugs.openjdk.java.net/browse/JDK-8253390
-        /*
-            // Initialize the window class.
-            WNDCLASSEX windowClass = { 0 };
-            windowClass.cbSize = sizeof(WNDCLASSEX);
-            windowClass.style = CS_HREDRAW | CS_VREDRAW;
-            windowClass.lpfnWndProc = WindowProc;
-            windowClass.hInstance = hInstance;
-            windowClass.hCursor = LoadCursor(NULL, IDC_ARROW);
-            windowClass.lpszClassName = L"DXSampleClass";
-            RegisterClassEx(&windowClass);
-
-            RECT windowRect = { 0, 0, static_cast<LONG>(pSample->GetWidth()), static_cast<LONG>(pSample->GetHeight()) };
-            AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW, FALSE);
-
-            // Create the window and store a handle to it.
-            m_hwnd = CreateWindow(
-                windowClass.lpszClassName,
-                pSample->GetTitle(),
-                WS_OVERLAPPEDWINDOW,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                windowRect.right - windowRect.left,
-                windowRect.bottom - windowRect.top,
-                nullptr,        // We have no parent window.
-                nullptr,        // We aren't using menus.
-                hInstance,
-                pSample);
-         */
-    }
-
-    public static void main(String[] args) throws Throwable {
-        LibraryLookup user32 = LibraryLookup.ofLibrary("user32");
-        LibraryLookup d3d12 = LibraryLookup.ofLibrary("D3D12");
-        LibraryLookup dxgi = LibraryLookup.ofLibrary("dxgi");
-        try (NativeScope scope = NativeScope.unboundedScope()) {
-            createWindow(scope);
-            // IDXGIFactory1** dxgiFactory;
-            var ppDxgiFactory = IDXGIFactory1.allocatePointer(scope);
-            // HRESULT = CreateDXGIFactory1(_uuid(dxgiFactory), &dxgiFactory))
-            checkResult(dxgi_h.CreateDXGIFactory1(IID.IID_IDXGIFactory1.guid, ppDxgiFactory));
-            // IDXGIFactory1*
-            MemorySegment pDxgiFactory = asSegment(MemoryAccess.getAddress(ppDxgiFactory), IDXGIFactory1.$LAYOUT());
-
-            // (This)->lpVtbl
-            MemorySegment vtbl = asSegment(IDXGIFactory1.lpVtbl$get(pDxgiFactory), IDXGIFactory1Vtbl.$LAYOUT());
-            // lpVtbl->EnumAdapters1
-            MemoryAddress addrEnumAdapters = IDXGIFactory1Vtbl.EnumAdapters1$get(vtbl);
-
-            // link the pointer
-            MethodHandle MH_EnumAdapters1 = getInstance().downcallHandle(
-                    addrEnumAdapters,
-                    MethodType.methodType(int.class, MemoryAddress.class, int.class, MemoryAddress.class),
-                    FunctionDescriptor.of(C_INT, C_POINTER, C_INT, C_POINTER));
-
-            /* [annotation][out] _COM_Outptr_  IDXGIAdapter1** */
-            MemorySegment ppOut = IDXGIAdapter1.allocatePointer(scope);
-            checkResult((int) MH_EnumAdapters1.invokeExact(pDxgiFactory.address(), 0, ppOut.address()));
-            // IDXGIAdapter1*
-            MemorySegment pAdapter = asSegment(MemoryAccess.getAddress(ppOut), IDXGIAdapter1.$LAYOUT());
-
-            // (This)->lpVtbl
-            MemorySegment vtbl2 = asSegment(IDXGIAdapter1.lpVtbl$get(pAdapter), IDXGIAdapter1Vtbl.$LAYOUT());
-            // lpVtbl->EnumAdapters1
-            // HRESULT(*)(IDXGIAdapter1*,DXGI_ADAPTER_DESC1*)
-            MemoryAddress addrGetDesc1 = IDXGIAdapter1Vtbl.GetDesc1$get(vtbl2);
-
-            // link the pointer
-            MethodHandle MH_GetDesc1 = getInstance().downcallHandle(
-                    addrGetDesc1,
-                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class),
-                    FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER));
-
-            /* DXGI_ADAPTER_DESC1* */
-            MemorySegment pDesc = DXGI_ADAPTER_DESC1.allocate(scope);
-            checkResult((int) MH_GetDesc1.invokeExact(pAdapter.address(), pDesc.address()));
-
-            // print description
-            MemorySegment descStr = DXGI_ADAPTER_DESC1.Description$slice(pDesc);
-            String str = new String(descStr.toByteArray(), StandardCharsets.UTF_16LE);
-            System.out.println(str);
-
-            // ID3D12Device** d3d12Device;
-            var ppDevice = ID3D12Device.allocatePointer(scope);
-
-            // D3D12CreateDevice(pAdapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&ppDevice))
-            checkResult(D3D12CreateDevice(pAdapter, (int) 45056L, IID.IID_ID3D12Device.guid, ppDevice));
-            // ID3D12Device*
-            MemorySegment pDevice = asSegment(MemoryAccess.getAddress(ppDevice), ID3D12Device.$LAYOUT());
-
-            // (This)->lpVtbl
-            MemorySegment deviceVtbl = asSegment(ID3D12Device.lpVtbl$get(pDevice), ID3D12DeviceVtbl.$LAYOUT());
-
-            // lpVtbl->CreateCommandQueue
-            MemoryAddress addrCreateCommandQueue = ID3D12DeviceVtbl.CreateCommandQueue$get(deviceVtbl);
-
-            // D3D12_COMMAND_QUEUE_DESC queueDesc = {};
-            // queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-            // queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-            MemorySegment pQueueDesc = D3D12_COMMAND_QUEUE_DESC.allocate(scope);
-            // This is unnecessary:
-            // You already have a fully readable/writable segment for the struct
-            // you should only use `asSegment` if you get a MemoryAddress from the library, but you want to turn it into
-            // a memory segment with certain known size (so that you can read and write from it).
-            //MemorySegment queueDesc = asSegment(pQueueDesc.address(), D3D12_COMMAND_QUEUE_DESC.$LAYOUT());
-            D3D12_COMMAND_QUEUE_DESC.Type$set(pQueueDesc, D3D12_COMMAND_LIST_TYPE_DIRECT());
-            D3D12_COMMAND_QUEUE_DESC.Flags$set(pQueueDesc, D3D12_COMMAND_QUEUE_FLAG_NONE());
-
-            // link the pointer (first MemoryAddress argument is the (this) pointer (C++ => C)
-            MethodHandle MH_ID3D12Device_CreateCommandQueue = getInstance().downcallHandle(
-                    addrCreateCommandQueue,
-                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
-                    FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER, C_POINTER, C_POINTER));
-
-            // ID3D12CommandQueue**
-            var ppQueue = ID3D12CommandQueue.allocatePointer(scope);
-
-            checkResult((int) MH_ID3D12Device_CreateCommandQueue.invokeExact(pDevice.address(), pQueueDesc.address(),
-                    IID.IID_ID3D12CommandQueue.guid.address(), ppQueue.address()));
-            System.in.read();
-        }
-    }
-
-    public static MemorySegment asSegment(MemoryAddress addr, MemoryLayout layout) {
-        return addr.asSegmentRestricted(layout.byteSize());
-    }
-
-    private static final int S_OK = 0x00000000;
-
-    private static void checkResult(int result) {
-        switch (result) {
-            case S_OK -> {
-            }
-            default -> throw new IllegalStateException("Unknown result: " + String.format("%X8", result));
-        }
-    }
 }
