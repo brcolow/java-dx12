@@ -16,6 +16,10 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.invoke.VarHandle;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
 import static com.dx12.d3d12_h.D3D12CreateDevice;
@@ -25,13 +29,24 @@ import static com.dx12.d3d12_h.D3D12_COMMAND_QUEUE_FLAG_NONE;
 import static com.dx12.d3d12_h.ID3D12CommandQueue;
 import static com.dx12.d3d12_h.ID3D12Device;
 import static com.dx12.d3d12_h.ID3D12DeviceVtbl;
+import static com.dx12.d3d12_h.ID3D12Device5;
+import static com.dx12.d3d12_h.ID3D12Device5Vtbl;
+import static com.dx12.dxgi_h.CreateDXGIFactory1;
 import static com.dx12.dxgi_h.DXGI_ADAPTER_DESC1;
 import static com.dx12.dxgi_h.DXGI_MODE_DESC;
 import static com.dx12.dxgi_h.DXGI_SAMPLE_DESC;
 import static com.dx12.dxgi_h.DXGI_SWAP_CHAIN_DESC;
+import static com.dx12.dxgi1_2_h.DXGI_SWAP_CHAIN_DESC1;
+import static com.dx12.dxgi1_2_h.IDXGISwapChain1;
+
 import static com.dx12.dxgi_h.IDXGIAdapter1;
 import static com.dx12.dxgi_h.IDXGIAdapter1Vtbl;
 import static com.dx12.dxgi_h.IDXGIFactory1;
+import static com.dx12.dxgi1_5_h.IDXGIFactory5;
+import static com.dx12.dxgi1_5_h.IDXGIFactory5Vtbl;
+import static com.dx12.dxgi1_6_h.IDXGIAdapter4;
+import static com.dx12.dxgi1_6_h.IDXGIAdapter4Vtbl;
+
 import static com.dx12.dxgi_h.IDXGIFactory1Vtbl;
 import static com.dx12.dxgi_h.IDXGISwapChain;
 
@@ -92,23 +107,30 @@ public class DX12 {
 
     public static void main(String[] args) throws Throwable {
         // TODO: Create a utility to check what Windows version we are running on, and then what Windows versions
-        // introduced which version of the various class like ID3D12Device1, 2, 3, etc.
+        //  introduced which version of the various class like ID3D12Device1, 2, 3, etc.
+        //  https://docs.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_feature
+
+        // TODO: Use an app manifest to target Windows 10. If we are lucky we can do this with jlink...MAYBE...
+        //  need to see if jlink calls link.exe and if so how we can set arguments:
+        //  https://docs.microsoft.com/en-us/cpp/build/reference/manifestinput-specify-manifest-input?view=vs-2019
+        //  https://docs.microsoft.com/en-us/windows/win32/w8cookbook/application--executable--manifest
+        //  https://github.com/rust-lang/rfcs/issues/721
         LibraryLookup user32 = LibraryLookup.ofLibrary("user32");
         LibraryLookup d3d12 = LibraryLookup.ofLibrary("D3D12");
         LibraryLookup dxgi = LibraryLookup.ofLibrary("dxgi");
         try (NativeScope scope = NativeScope.unboundedScope()) {
             MemoryAddress hwndMain = createWindow(scope);
             // IDXGIFactory1** dxgiFactory;
-            var ppDxgiFactory = IDXGIFactory1.allocatePointer(scope);
+            var ppDxgiFactory = IDXGIFactory5.allocatePointer(scope);
             // HRESULT = CreateDXGIFactory1(_uuid(dxgiFactory), &dxgiFactory))
-            checkResult(dxgi_h.CreateDXGIFactory1(IID.IID_IDXGIFactory1.guid, ppDxgiFactory));
+            checkResult("CreateDXGIFactory1", CreateDXGIFactory1(IID.IID_IDXGIFactory5.guid, ppDxgiFactory));
             // IDXGIFactory1*
-            MemorySegment pDxgiFactory = asSegment(MemoryAccess.getAddress(ppDxgiFactory), IDXGIFactory1.$LAYOUT());
+            MemorySegment pDxgiFactory = asSegment(MemoryAccess.getAddress(ppDxgiFactory), IDXGIFactory5.$LAYOUT());
 
             // (This)->lpVtbl
-            MemorySegment dxgiFactoryVtbl = asSegment(IDXGIFactory1.lpVtbl$get(pDxgiFactory), IDXGIFactory1Vtbl.$LAYOUT());
+            MemorySegment dxgiFactoryVtbl = asSegment(IDXGIFactory5.lpVtbl$get(pDxgiFactory), IDXGIFactory5Vtbl.$LAYOUT());
             // lpVtbl->EnumAdapters1
-            MemoryAddress enumAdaptersAddr = IDXGIFactory1Vtbl.EnumAdapters1$get(dxgiFactoryVtbl);
+            MemoryAddress enumAdaptersAddr = IDXGIFactory5Vtbl.EnumAdapters1$get(dxgiFactoryVtbl);
 
             // link the pointer
             MethodHandle EnumAdapters1MethodHandle = getInstance().downcallHandle(
@@ -117,16 +139,16 @@ public class DX12 {
                     FunctionDescriptor.of(C_INT, C_POINTER, C_INT, C_POINTER));
 
             /* [annotation][out] _COM_Outptr_  IDXGIAdapter1** */
-            MemorySegment ppOut = IDXGIAdapter1.allocatePointer(scope);
-            checkResult((int) EnumAdapters1MethodHandle.invokeExact(pDxgiFactory.address(), 0, ppOut.address()));
+            MemorySegment ppOut = IDXGIAdapter4.allocatePointer(scope);
+            checkResult("EnumAdapters1", (int) EnumAdapters1MethodHandle.invokeExact(pDxgiFactory.address(), 0, ppOut.address()));
             // IDXGIAdapter1*
-            MemorySegment pAdapter = asSegment(MemoryAccess.getAddress(ppOut), IDXGIAdapter1.$LAYOUT());
+            MemorySegment pAdapter = asSegment(MemoryAccess.getAddress(ppOut), IDXGIAdapter4.$LAYOUT());
 
             // (This)->lpVtbl
-            MemorySegment dxgiAdapterVtbl = asSegment(IDXGIAdapter1.lpVtbl$get(pAdapter), IDXGIAdapter1Vtbl.$LAYOUT());
+            MemorySegment dxgiAdapterVtbl = asSegment(IDXGIAdapter4.lpVtbl$get(pAdapter), IDXGIAdapter4Vtbl.$LAYOUT());
             // lpVtbl->EnumAdapters1
             // HRESULT(*)(IDXGIAdapter1*,DXGI_ADAPTER_DESC1*)
-            MemoryAddress getDesc1Addr = IDXGIAdapter1Vtbl.GetDesc1$get(dxgiAdapterVtbl);
+            MemoryAddress getDesc1Addr = IDXGIAdapter4Vtbl.GetDesc1$get(dxgiAdapterVtbl);
 
             // link the pointer
             MethodHandle getDesc1MethodHandle = getInstance().downcallHandle(
@@ -136,7 +158,7 @@ public class DX12 {
 
             /* DXGI_ADAPTER_DESC1* */
             MemorySegment pDesc = DXGI_ADAPTER_DESC1.allocate(scope);
-            checkResult((int) getDesc1MethodHandle.invokeExact(pAdapter.address(), pDesc.address()));
+            checkResult("getDesc1", (int) getDesc1MethodHandle.invokeExact(pAdapter.address(), pDesc.address()));
 
             // print description
             MemorySegment descStr = DXGI_ADAPTER_DESC1.Description$slice(pDesc);
@@ -144,18 +166,18 @@ public class DX12 {
             System.out.println(str);
 
             // ID3D12Device** d3d12Device;
-            var ppDevice = ID3D12Device.allocatePointer(scope);
+            var ppDevice = ID3D12Device5.allocatePointer(scope);
 
             // D3D12CreateDevice(pAdapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&ppDevice))
-            checkResult(D3D12CreateDevice(pAdapter, (int) 45056L, IID.IID_ID3D12Device.guid, ppDevice));
+            checkResult("D3D12CreateDevice", D3D12CreateDevice(pAdapter, D3D_FEATURE_LEVEL_11_0(), IID.IID_ID3D12Device5.guid, ppDevice));
             // ID3D12Device*
-            MemorySegment pDevice = asSegment(MemoryAccess.getAddress(ppDevice), ID3D12Device.$LAYOUT());
+            MemorySegment pDevice = asSegment(MemoryAccess.getAddress(ppDevice), ID3D12Device5.$LAYOUT());
 
             // (This)->lpVtbl
-            MemorySegment deviceVtbl = asSegment(ID3D12Device.lpVtbl$get(pDevice), ID3D12DeviceVtbl.$LAYOUT());
+            MemorySegment deviceVtbl = asSegment(ID3D12Device5.lpVtbl$get(pDevice), ID3D12Device5Vtbl.$LAYOUT());
 
             // lpVtbl->CreateCommandQueue
-            MemoryAddress createCommandQueueAddr = ID3D12DeviceVtbl.CreateCommandQueue$get(deviceVtbl);
+            MemoryAddress createCommandQueueAddr = ID3D12Device5Vtbl.CreateCommandQueue$get(deviceVtbl);
 
             // D3D12_COMMAND_QUEUE_DESC queueDesc = {};
             // queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -178,7 +200,8 @@ public class DX12 {
             // ID3D12CommandQueue**
             var ppQueue = ID3D12CommandQueue.allocatePointer(scope);
 
-            checkResult((int) MH_ID3D12Device_CreateCommandQueue.invokeExact(pDevice.address(), pQueueDesc.address(),
+            checkResult("ID3D12Device_CreateCommandQueue", (int) MH_ID3D12Device_CreateCommandQueue.invokeExact(
+                    pDevice.address(), pQueueDesc.address(),
                     IID.IID_ID3D12CommandQueue.guid.address(), ppQueue.address()));
 
             /*
@@ -199,40 +222,75 @@ public class DX12 {
              */
             // FIXME: We want to use: CreateSwapChainForHwnd not CreateSwapChain!
             // https://docs.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgifactory2-createswapchainforhwnd
-            MemorySegment pSwapChainDesc = DXGI_SWAP_CHAIN_DESC.allocate(scope);
+            MemorySegment pSwapChainDesc = DXGI_SWAP_CHAIN_DESC1.allocate(scope);
             //MemorySegment pBufferDesc = DXGI_MODE_DESC.allocate(scope);
             //DXGI_MODE_DESC.Width$set(pBufferDesc, 0);
             //DXGI_MODE_DESC.Height$set(pBufferDesc, 0);
             //DXGI_MODE_DESC.Format$set(pBufferDesc, DXGI_FORMAT_R8G8B8A8_UNORM());
-            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("BufferDesc"), MemoryLayout.PathElement.groupElement("Width")).set(pSwapChainDesc, 0);
-            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("BufferDesc"), MemoryLayout.PathElement.groupElement("Height")).set(pSwapChainDesc, 0);
-            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("BufferDesc"), MemoryLayout.PathElement.groupElement("Format")).set(pSwapChainDesc, DXGI_FORMAT_R8G8B8A8_UNORM());
+            /*
+            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("BufferDesc"),
+                    MemoryLayout.PathElement.groupElement("Width")).set(pSwapChainDesc, 0);
+            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("BufferDesc"),
+                    MemoryLayout.PathElement.groupElement("Height")).set(pSwapChainDesc, 0);
+            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("BufferDesc"),
+                    MemoryLayout.PathElement.groupElement("Format")).set(pSwapChainDesc, DXGI_FORMAT_R8G8B8A8_UNORM());
+            */
+            DXGI_SWAP_CHAIN_DESC1.Width$set(pSwapChainDesc, 0);
+            DXGI_SWAP_CHAIN_DESC1.Height$set(pSwapChainDesc, 0);
+            DXGI_SWAP_CHAIN_DESC1.Format$set(pSwapChainDesc, DXGI_FORMAT_R8G8B8A8_UNORM());
+            DXGI_SWAP_CHAIN_DESC1.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("SampleDesc"),
+                    MemoryLayout.PathElement.groupElement("Count")).set(pSwapChainDesc, 1);
+            DXGI_SWAP_CHAIN_DESC1.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("SampleDesc"),
+                    MemoryLayout.PathElement.groupElement("Quality")).set(pSwapChainDesc, 0);
+            DXGI_SWAP_CHAIN_DESC1.BufferUsage$set(pSwapChainDesc, DXGI_USAGE_RENDER_TARGET_OUTPUT());
+            DXGI_SWAP_CHAIN_DESC1.BufferCount$set(pSwapChainDesc, 1);
 
             //DXGI_SWAP_CHAIN_DESC.BufferDesc$slice(pSwapChainDesc).
             //System.out.println("buffer desc segment: " + DXGI_MODE_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("Width")));
             //MemorySegment pSampleDesc = DXGI_SAMPLE_DESC.allocate(scope);
             //DXGI_SAMPLE_DESC.Count$set(pSampleDesc, 1); // The number of multisamples per pixel.
             //DXGI_SAMPLE_DESC.Quality$set(pSampleDesc, 0); // The image quality level.
-            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("SampleDesc"), MemoryLayout.PathElement.groupElement("Count")).set(pSwapChainDesc, 1);
-            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("SampleDesc"), MemoryLayout.PathElement.groupElement("Quality")).set(pSwapChainDesc, 0);
-            // This is out of bounds...
-            //DXGI_SWAP_CHAIN_DESC.SampleDesc$slice(pSwapChainDesc);
-            DXGI_SWAP_CHAIN_DESC.BufferUsage$set(pSwapChainDesc, DXGI_USAGE_RENDER_TARGET_OUTPUT());
-            DXGI_SWAP_CHAIN_DESC.BufferCount$set(pSwapChainDesc, 1);
-            DXGI_SWAP_CHAIN_DESC.OutputWindow$set(pSwapChainDesc, hwndMain.address());
-            DXGI_SWAP_CHAIN_DESC.Windowed$set(pSwapChainDesc, 0);
-            DXGI_SWAP_CHAIN_DESC.SwapEffect$set(pSwapChainDesc, DXGI_SWAP_EFFECT_SEQUENTIAL());
-            DXGI_SWAP_CHAIN_DESC.Flags$set(pSwapChainDesc, 0);
+            /*
+            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("SampleDesc"),
+                    MemoryLayout.PathElement.groupElement("Count")).set(pSwapChainDesc, 1);
+            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("SampleDesc"),
+                    MemoryLayout.PathElement.groupElement("Quality")).set(pSwapChainDesc, 0);
+
+             */
+            //DXGI_SWAP_CHAIN_DESC.BufferUsage$set(pSwapChainDesc, DXGI_USAGE_RENDER_TARGET_OUTPUT());
+            //DXGI_SWAP_CHAIN_DESC.BufferCount$set(pSwapChainDesc, 1);
+            //DXGI_SWAP_CHAIN_DESC.OutputWindow$set(pSwapChainDesc, hwndMain.address());
+            //DXGI_SWAP_CHAIN_DESC.Windowed$set(pSwapChainDesc, 0);
+            //DXGI_SWAP_CHAIN_DESC.SwapEffect$set(pSwapChainDesc, DXGI_SWAP_EFFECT_SEQUENTIAL());
+            //DXGI_SWAP_CHAIN_DESC.Flags$set(pSwapChainDesc, 0);
+            /*
             MemoryAddress addrCreateSwapChain = IDXGIFactory1Vtbl.CreateSwapChain$get(dxgiFactoryVtbl);
             MethodHandle createSwapChainMethodHandle = getInstance().downcallHandle(
                     addrCreateSwapChain,
                     MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
                     FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER, C_POINTER));
             MemorySegment ppSwapChain = IDXGISwapChain.allocatePointer(scope);
-            int result = (int) createSwapChainMethodHandle.invokeExact(pDxgiFactory.address(), pDevice.address(), ppSwapChain.address());
+            int result = (int) createSwapChainMethodHandle.invokeExact(
+                    pDxgiFactory.address(), pDevice.address(), ppSwapChain.address());
+             */
+            MemoryAddress addrCreateSwapChainForHwnd = IDXGIFactory5Vtbl.CreateSwapChainForHwnd$get(dxgiFactoryVtbl);
+            MethodHandle createSwapChainForHwndMethodHandle = getInstance().downcallHandle(
+                    addrCreateSwapChainForHwnd,
+                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class,
+                            MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
+                    FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER, C_POINTER, C_POINTER, C_POINTER, C_POINTER, C_POINTER));
+            MemorySegment ppSwapChain = IDXGISwapChain1.allocatePointer(scope);
+            MemorySegment pQueue = asSegment(MemoryAccess.getAddress(ppQueue), ID3D12CommandQueue.$LAYOUT());
 
-            System.out.println("CreateSwapChain result: " + String.format("%X8", result));
-            System.in.read();
+            // This is returning DXGI_ERROR_INVALID_CALL
+            checkResult("createSwapChainForHwnd", (int) createSwapChainForHwndMethodHandle.invokeExact(
+                    pDxgiFactory.address(),
+                    pQueue.address(),
+                    hwndMain,
+                    pSwapChainDesc.address(), MemoryAddress.NULL, MemoryAddress.NULL,
+                    ppSwapChain.address()));
+            ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
+            executorService.schedule(() -> {}, 1, TimeUnit.MINUTES);
         }
     }
 
@@ -241,12 +299,16 @@ public class DX12 {
     }
 
     private static final int S_OK = 0x00000000;
+    private static final int DXGI_ERROR_INVALID_CALL = (int) -2005270527L;
 
-    private static void checkResult(int result) {
+    private static void checkResult(String function, int result) {
         switch (result) {
-            case S_OK -> {
-            }
-            default -> throw new IllegalStateException("Unknown result: " + String.format("%X8", result));
+            case S_OK ->
+                    System.out.println("Function \"" + function + "\" returned successfully!");
+            case DXGI_ERROR_INVALID_CALL ->
+                    System.out.println("Function \"" + function + "\" returned result: DXGI_ERROR_INVALID_CALL");
+            default ->
+                    System.out.println("Function \"" + function + "\" returned unknown result: " + Integer.toHexString(result));
         }
     }
 
@@ -255,6 +317,7 @@ public class DX12 {
         IID_IDXGIAdapter1(0x29038f61, 0x3839, 0x4626, 0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05),
         IID_IDXGIAdapter4(0x3c8d99d1, 0x4fbf, 0x4181, 0xa8, 0x2c, 0xaf, 0x66, 0xbf, 0x7b, 0xd2, 0x4e),
         IID_IDXGIFactory1(0x770aae78, 0xf26f, 0x4dba, 0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87),
+        IID_IDXGIFactory5(0x7632e1f5, 0xee65, 0x4dca, 0x87, 0xfd, 0x84, 0xcd, 0x75, 0xf8, 0x83, 0x8d),
         IID_IDXGIFactory7(0xa4966eed, 0x76db, 0x44da, 0x84, 0xc1, 0xee, 0x9a, 0x7a, 0xfb, 0x20, 0xa8),
         IID_ID3D12Device(0x189819f1, 0x1db6, 0x4b57, 0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7),
         IID_ID3D12Device5(0x8b4f173b, 0x2fea, 0x4b80, 0x8f, 0x58, 0x43, 0x07, 0x19, 0x1a, 0xb9, 0x5d),
@@ -722,5 +785,10 @@ public class DX12 {
     static final int DXGI_FORMAT_R8G8B8A8_UNORM() { return (int)28L; }
     static final int DXGI_USAGE_RENDER_TARGET_OUTPUT() { return (int)32L; }
     static final int DXGI_SWAP_EFFECT_SEQUENTIAL() { return (int)1L; }
+
+    static final int D3D_FEATURE_LEVEL_11_0() { return (int)45056L; }
+    static final int D3D_FEATURE_LEVEL_11_1() { return (int)45312L; }
+    static final int D3D_FEATURE_LEVEL_12_0() { return (int)49152L; }
+    static final int D3D_FEATURE_LEVEL_12_1() { return (int)49408L; }
 
 }
