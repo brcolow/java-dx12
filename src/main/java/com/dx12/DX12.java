@@ -22,7 +22,10 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
+import static com.dx12.d3d12sdklayers_h.ID3D12Debug;
+import static com.dx12.d3d12sdklayers_h.ID3D12DebugVtbl;
 import static com.dx12.d3d12_h.D3D12CreateDevice;
+import static com.dx12.d3d12_h.D3D12GetDebugInterface;
 import static com.dx12.d3d12_h.D3D12_COMMAND_LIST_TYPE_DIRECT;
 import static com.dx12.d3d12_h.D3D12_COMMAND_QUEUE_DESC;
 import static com.dx12.d3d12_h.D3D12_COMMAND_QUEUE_FLAG_NONE;
@@ -32,6 +35,7 @@ import static com.dx12.d3d12_h.ID3D12DeviceVtbl;
 import static com.dx12.d3d12_h.ID3D12Device5;
 import static com.dx12.d3d12_h.ID3D12Device5Vtbl;
 import static com.dx12.dxgi_h.CreateDXGIFactory1;
+import static com.dx12.dxgi1_3_h.CreateDXGIFactory2;
 import static com.dx12.dxgi_h.DXGI_ADAPTER_DESC1;
 import static com.dx12.dxgi_h.DXGI_MODE_DESC;
 import static com.dx12.dxgi_h.DXGI_SAMPLE_DESC;
@@ -102,6 +106,7 @@ public class DX12 {
         }
         System.out.println("hwndMain: " + hwndMain);
         ShowWindow(hwndMain, SW_SHOW());
+        UpdateWindow(hwndMain);
         return hwndMain;
     }
 
@@ -120,10 +125,21 @@ public class DX12 {
         LibraryLookup dxgi = LibraryLookup.ofLibrary("dxgi");
         try (NativeScope scope = NativeScope.unboundedScope()) {
             MemoryAddress hwndMain = createWindow(scope);
+            var ppvDebug = ID3D12Debug.allocatePointer(scope);
+            checkResult("D3D12GetDebugInterface", D3D12GetDebugInterface(IID.IID_ID3D12Debug.guid,ppvDebug));
+            MemorySegment pvDebug = asSegment(MemoryAccess.getAddress(ppvDebug), ID3D12Debug.$LAYOUT());
+            MemorySegment vDebugVtbl = asSegment(ID3D12Debug.lpVtbl$get(pvDebug), ID3D12DebugVtbl.$LAYOUT());
+            MemoryAddress enableDebugLayerAddr = ID3D12DebugVtbl.EnableDebugLayer$get(vDebugVtbl);
+            MethodHandle enableDebugLayerMethodHandle = getInstance().downcallHandle(
+                    enableDebugLayerAddr,
+                    MethodType.methodType(int.class, MemoryAddress.class),
+                    FunctionDescriptor.of(C_INT, C_POINTER));
+            checkResult("EnableDebugLayer", (int) enableDebugLayerMethodHandle.invokeExact(pvDebug.address()));
+
             // IDXGIFactory1** dxgiFactory;
             var ppDxgiFactory = IDXGIFactory5.allocatePointer(scope);
             // HRESULT = CreateDXGIFactory1(_uuid(dxgiFactory), &dxgiFactory))
-            checkResult("CreateDXGIFactory1", CreateDXGIFactory1(IID.IID_IDXGIFactory5.guid, ppDxgiFactory));
+            checkResult("CreateDXGIFactory2", CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG(), IID.IID_IDXGIFactory5.guid, ppDxgiFactory));
             // IDXGIFactory1*
             MemorySegment pDxgiFactory = asSegment(MemoryAccess.getAddress(ppDxgiFactory), IDXGIFactory5.$LAYOUT());
 
@@ -204,81 +220,28 @@ public class DX12 {
                     pDevice.address(), pQueueDesc.address(),
                     IID.IID_ID3D12CommandQueue.guid.address(), ppQueue.address()));
 
-            /*
-            DXGI_SWAP_CHAIN_DESC result = { };
-            result.BufferDesc.Width = x;
-            result.BufferDesc.Height = y;
-            result.BufferDesc.Format = format;
-            result.SampleDesc.Count = 1;
-            result.SampleDesc.Quality = 0;
-            result.BufferUsage = usage;
-            result.BufferCount = bufferCount;
-            result.OutputWindow = hWnd;
-            result.Windowed = true;
-            result.SwapEffect = swapEffect;
-            result.Flags = 0;
-
-            dxgiFactory->CreateSwapChain(..)
-             */
-            // FIXME: We want to use: CreateSwapChainForHwnd not CreateSwapChain!
-            // https://docs.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgifactory2-createswapchainforhwnd
             MemorySegment pSwapChainDesc = DXGI_SWAP_CHAIN_DESC1.allocate(scope);
-            //MemorySegment pBufferDesc = DXGI_MODE_DESC.allocate(scope);
-            //DXGI_MODE_DESC.Width$set(pBufferDesc, 0);
-            //DXGI_MODE_DESC.Height$set(pBufferDesc, 0);
-            //DXGI_MODE_DESC.Format$set(pBufferDesc, DXGI_FORMAT_R8G8B8A8_UNORM());
-            /*
-            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("BufferDesc"),
-                    MemoryLayout.PathElement.groupElement("Width")).set(pSwapChainDesc, 0);
-            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("BufferDesc"),
-                    MemoryLayout.PathElement.groupElement("Height")).set(pSwapChainDesc, 0);
-            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("BufferDesc"),
-                    MemoryLayout.PathElement.groupElement("Format")).set(pSwapChainDesc, DXGI_FORMAT_R8G8B8A8_UNORM());
-            */
             DXGI_SWAP_CHAIN_DESC1.Width$set(pSwapChainDesc, 0);
             DXGI_SWAP_CHAIN_DESC1.Height$set(pSwapChainDesc, 0);
-            DXGI_SWAP_CHAIN_DESC1.Format$set(pSwapChainDesc, DXGI_FORMAT_R8G8B8A8_UNORM());
+            DXGI_SWAP_CHAIN_DESC1.Format$set(pSwapChainDesc, DXGI_FORMAT_B8G8R8A8_UNORM());
             DXGI_SWAP_CHAIN_DESC1.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("SampleDesc"),
                     MemoryLayout.PathElement.groupElement("Count")).set(pSwapChainDesc, 1);
             DXGI_SWAP_CHAIN_DESC1.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("SampleDesc"),
                     MemoryLayout.PathElement.groupElement("Quality")).set(pSwapChainDesc, 0);
             DXGI_SWAP_CHAIN_DESC1.BufferUsage$set(pSwapChainDesc, DXGI_USAGE_RENDER_TARGET_OUTPUT());
-            DXGI_SWAP_CHAIN_DESC1.BufferCount$set(pSwapChainDesc, 1);
+            DXGI_SWAP_CHAIN_DESC1.BufferCount$set(pSwapChainDesc, 2);
+            DXGI_SWAP_CHAIN_DESC1.SwapEffect$set(pSwapChainDesc, DXGI_SWAP_EFFECT_FLIP_DISCARD());
+            DXGI_SWAP_CHAIN_DESC1.AlphaMode$set(pSwapChainDesc, DXGI_ALPHA_MODE_UNSPECIFIED());
+            DXGI_SWAP_CHAIN_DESC1.Scaling$set(pSwapChainDesc, DXGI_SCALING_STRETCH());
+            DXGI_SWAP_CHAIN_DESC1.Stereo$set(pSwapChainDesc, 0);
 
-            //DXGI_SWAP_CHAIN_DESC.BufferDesc$slice(pSwapChainDesc).
-            //System.out.println("buffer desc segment: " + DXGI_MODE_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("Width")));
-            //MemorySegment pSampleDesc = DXGI_SAMPLE_DESC.allocate(scope);
-            //DXGI_SAMPLE_DESC.Count$set(pSampleDesc, 1); // The number of multisamples per pixel.
-            //DXGI_SAMPLE_DESC.Quality$set(pSampleDesc, 0); // The image quality level.
-            /*
-            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("SampleDesc"),
-                    MemoryLayout.PathElement.groupElement("Count")).set(pSwapChainDesc, 1);
-            DXGI_SWAP_CHAIN_DESC.$LAYOUT().varHandle(int.class, MemoryLayout.PathElement.groupElement("SampleDesc"),
-                    MemoryLayout.PathElement.groupElement("Quality")).set(pSwapChainDesc, 0);
-
-             */
-            //DXGI_SWAP_CHAIN_DESC.BufferUsage$set(pSwapChainDesc, DXGI_USAGE_RENDER_TARGET_OUTPUT());
-            //DXGI_SWAP_CHAIN_DESC.BufferCount$set(pSwapChainDesc, 1);
-            //DXGI_SWAP_CHAIN_DESC.OutputWindow$set(pSwapChainDesc, hwndMain.address());
-            //DXGI_SWAP_CHAIN_DESC.Windowed$set(pSwapChainDesc, 0);
-            //DXGI_SWAP_CHAIN_DESC.SwapEffect$set(pSwapChainDesc, DXGI_SWAP_EFFECT_SEQUENTIAL());
-            //DXGI_SWAP_CHAIN_DESC.Flags$set(pSwapChainDesc, 0);
-            /*
-            MemoryAddress addrCreateSwapChain = IDXGIFactory1Vtbl.CreateSwapChain$get(dxgiFactoryVtbl);
-            MethodHandle createSwapChainMethodHandle = getInstance().downcallHandle(
-                    addrCreateSwapChain,
-                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
-                    FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER, C_POINTER));
-            MemorySegment ppSwapChain = IDXGISwapChain.allocatePointer(scope);
-            int result = (int) createSwapChainMethodHandle.invokeExact(
-                    pDxgiFactory.address(), pDevice.address(), ppSwapChain.address());
-             */
             MemoryAddress addrCreateSwapChainForHwnd = IDXGIFactory5Vtbl.CreateSwapChainForHwnd$get(dxgiFactoryVtbl);
             MethodHandle createSwapChainForHwndMethodHandle = getInstance().downcallHandle(
                     addrCreateSwapChainForHwnd,
-                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class,
-                            MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
-                    FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER, C_POINTER, C_POINTER, C_POINTER, C_POINTER, C_POINTER));
+                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class,
+                            MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
+                    FunctionDescriptor.of(
+                            C_INT, C_POINTER, C_POINTER, C_POINTER, C_POINTER, C_POINTER, C_POINTER, C_POINTER));
             MemorySegment ppSwapChain = IDXGISwapChain1.allocatePointer(scope);
             MemorySegment pQueue = asSegment(MemoryAccess.getAddress(ppQueue), ID3D12CommandQueue.$LAYOUT());
 
@@ -286,7 +249,7 @@ public class DX12 {
             checkResult("createSwapChainForHwnd", (int) createSwapChainForHwndMethodHandle.invokeExact(
                     pDxgiFactory.address(),
                     pQueue.address(),
-                    hwndMain,
+                    hwndMain.address(),
                     pSwapChainDesc.address(), MemoryAddress.NULL, MemoryAddress.NULL,
                     ppSwapChain.address()));
             ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
@@ -314,6 +277,7 @@ public class DX12 {
 
     public enum IID {
         // https://github.com/terrafx/terrafx.interop.windows/blob/2d5817519219dc963dbe08baa67997c2821befc4/sources/Interop/Windows/um/d3d12/Windows.cs#L180
+        IID_ID3D12Debug(0x344488b7, 0x6846, 0x474b, 0xb9, 0x89, 0xf0, 0x27, 0x44, 0x82, 0x45, 0xe0),
         IID_IDXGIAdapter1(0x29038f61, 0x3839, 0x4626, 0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05),
         IID_IDXGIAdapter4(0x3c8d99d1, 0x4fbf, 0x4181, 0xa8, 0x2c, 0xaf, 0x66, 0xbf, 0x7b, 0xd2, 0x4e),
         IID_IDXGIFactory1(0x770aae78, 0xf26f, 0x4dba, 0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87),
@@ -781,14 +745,40 @@ public class DX12 {
         }
     }
     static final int SW_SHOW() { return (int)5L; }
+    static final FunctionDescriptor UpdateWindow$FUNC_ = FunctionDescriptor.of(C_INT,
+            C_POINTER
+    );
+    static final FunctionDescriptor UpdateWindow$FUNC() { return UpdateWindow$FUNC_; }
+
+    static final MethodHandle UpdateWindow$MH_ = RuntimeHelper.downcallHandle(
+            LIBRARIES, "UpdateWindow",
+            "(Ljdk/incubator/foreign/MemoryAddress;)I",
+            UpdateWindow$FUNC_, false
+    );
+    static final java.lang.invoke.MethodHandle UpdateWindow$MH() { return UpdateWindow$MH_; }
+    public static @C("BOOL") int UpdateWindow (@C("HWND") Addressable hWnd) {
+        try {
+            return (int)UpdateWindow$MH().invokeExact(hWnd.address());
+        } catch (Throwable ex) {
+            throw new AssertionError(ex);
+        }
+    }
 
     static final int DXGI_FORMAT_R8G8B8A8_UNORM() { return (int)28L; }
+    static final int DXGI_FORMAT_B8G8R8A8_UNORM() { return (int)87L; }
+
     static final int DXGI_USAGE_RENDER_TARGET_OUTPUT() { return (int)32L; }
     static final int DXGI_SWAP_EFFECT_SEQUENTIAL() { return (int)1L; }
+    static final int DXGI_SWAP_EFFECT_FLIP_DISCARD() { return (int)4L; }
+    static final int DXGI_ALPHA_MODE_UNSPECIFIED() { return (int)0L; }
+    static final int DXGI_SCALING_STRETCH() { return (int)0L; }
+    static final int DXGI_SCALING_NONE() { return (int)1L; }
+    static final int DXGI_SCALING_ASPECT_RATIO_STRETCH() { return (int)2L; }
 
     static final int D3D_FEATURE_LEVEL_11_0() { return (int)45056L; }
     static final int D3D_FEATURE_LEVEL_11_1() { return (int)45312L; }
     static final int D3D_FEATURE_LEVEL_12_0() { return (int)49152L; }
     static final int D3D_FEATURE_LEVEL_12_1() { return (int)49408L; }
+    static final int DXGI_CREATE_FACTORY_DEBUG() { return (int)1L; }
 
 }

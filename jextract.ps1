@@ -8,6 +8,7 @@ jextract -Xmx2048m --source -d . -t com.dx12 -I "$I\um" -I "$I\shared" -C "-DWIN
 # jextract --source -d . -t com.dx12 -I "$I\shared" -I "$I\um" -C "-DWIN32_LEAN_AND_MEAN=1" -C "-D_AMD64_=1" -- "$I\um\WinUser.h"
 jextract --source -d . -t com.dx12 -I "$I\um" --filter "d3d12.h" -- "$I\um\d3d12.h"
 jextract --source -d . -t com.dx12 -I "$I\um" --filter "d3dcommon.h" -- "$I\um\d3dcommon.h"
+jextract --source -d . -t com.dx12 -I "$I\um" --filter "d3d12sdklayers.h" -- "$I\um\d3d12sdklayers.h"
 jextract --source -d . -t com.dx12 -I "$I\um" --filter "dxgi.h" --filter "dxgicommon.h" --filter "dxgitype.h" -- "$I\shared\dxgi.h"
 jextract --source -d . -t com.dx12 -I "$I\um" --filter "dxgi1_2.h" -- "$I\shared\dxgi1_2.h"
 jextract --source -d . -t com.dx12 -I "$I\um" --filter "dxgi1_3.h" -- "$I\shared\dxgi1_3.h"
