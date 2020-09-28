@@ -26,14 +26,19 @@ import static com.dx12.d3d12sdklayers_h.ID3D12Debug;
 import static com.dx12.d3d12sdklayers_h.ID3D12DebugVtbl;
 import static com.dx12.d3d12_h.D3D12CreateDevice;
 import static com.dx12.d3d12_h.D3D12GetDebugInterface;
+import static com.dx12.d3d12_h.ID3D12DescriptorHeap;
 import static com.dx12.d3d12_h.D3D12_COMMAND_LIST_TYPE_DIRECT;
 import static com.dx12.d3d12_h.D3D12_COMMAND_QUEUE_DESC;
 import static com.dx12.d3d12_h.D3D12_COMMAND_QUEUE_FLAG_NONE;
 import static com.dx12.d3d12_h.ID3D12CommandQueue;
+import static com.dx12.d3d12_h.ID3D12Resource;
 import static com.dx12.d3d12_h.ID3D12Device;
 import static com.dx12.d3d12_h.ID3D12DeviceVtbl;
 import static com.dx12.d3d12_h.ID3D12Device5;
 import static com.dx12.d3d12_h.ID3D12Device5Vtbl;
+import static com.dx12.d3d12_h.D3D12_DESCRIPTOR_HEAP_DESC;
+import static com.dx12.d3d12_h.D3D12_CPU_DESCRIPTOR_HANDLE;
+import static com.dx12.d3d12_h.ID3D12DescriptorHeapVtbl;
 import static com.dx12.dxgi_h.CreateDXGIFactory1;
 import static com.dx12.dxgi1_3_h.CreateDXGIFactory2;
 import static com.dx12.dxgi_h.DXGI_ADAPTER_DESC1;
@@ -42,6 +47,7 @@ import static com.dx12.dxgi_h.DXGI_SAMPLE_DESC;
 import static com.dx12.dxgi_h.DXGI_SWAP_CHAIN_DESC;
 import static com.dx12.dxgi1_2_h.DXGI_SWAP_CHAIN_DESC1;
 import static com.dx12.dxgi1_2_h.IDXGISwapChain1;
+import static com.dx12.dxgi1_2_h.IDXGISwapChain1Vtbl;
 
 import static com.dx12.dxgi_h.IDXGIAdapter1;
 import static com.dx12.dxgi_h.IDXGIAdapter1Vtbl;
@@ -245,13 +251,97 @@ public class DX12 {
             MemorySegment ppSwapChain = IDXGISwapChain1.allocatePointer(scope);
             MemorySegment pQueue = asSegment(MemoryAccess.getAddress(ppQueue), ID3D12CommandQueue.$LAYOUT());
 
-            // This is returning DXGI_ERROR_INVALID_CALL
             checkResult("createSwapChainForHwnd", (int) createSwapChainForHwndMethodHandle.invokeExact(
                     pDxgiFactory.address(),
                     pQueue.address(),
                     hwndMain.address(),
                     pSwapChainDesc.address(), MemoryAddress.NULL, MemoryAddress.NULL,
                     ppSwapChain.address()));
+
+            // https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/Desktop/D3D12HelloWorld/src/HelloWindow/D3D12HelloWindow.cpp
+            /*
+                D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
+                rtvHeapDesc.NumDescriptors = FrameCount;
+                rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+                rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+                ThrowIfFailed(m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
+             */
+            MemorySegment pHeapDesc = D3D12_DESCRIPTOR_HEAP_DESC.allocate(scope);
+            D3D12_DESCRIPTOR_HEAP_DESC.NumDescriptors$set(pHeapDesc, 2);
+            D3D12_DESCRIPTOR_HEAP_DESC.Type$set(pHeapDesc, D3D12_DESCRIPTOR_HEAP_TYPE_RTV());
+            D3D12_DESCRIPTOR_HEAP_DESC.Flags$set(pHeapDesc, D3D12_DESCRIPTOR_HEAP_FLAG_NONE());
+            MemoryAddress createDescriptorHeapAddr = ID3D12Device5Vtbl.CreateDescriptorHeap$get(deviceVtbl);
+            MethodHandle MH_ID3D12Device_CreateDescriptorHeap = getInstance().downcallHandle(
+                    createDescriptorHeapAddr,
+                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
+                    FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER, C_POINTER, C_POINTER));
+            var ppHeapDescriptor = ID3D12DescriptorHeap.allocatePointer(scope);
+            checkResult("ID3D12Device_CreateDescriptorHeap", (int) MH_ID3D12Device_CreateDescriptorHeap.invokeExact(
+                    pDevice.address(), pHeapDesc.address(),
+                    IID.IID_ID3D12DescriptorHeap.guid.address(), ppHeapDescriptor.address()));
+            var pHeapDescriptor = asSegment(MemoryAccess.getAddress(ppHeapDescriptor), ID3D12DescriptorHeap.$LAYOUT());
+
+            MemorySegment heapDescriptorVtbl = asSegment(ID3D12DescriptorHeap.lpVtbl$get(pHeapDescriptor), ID3D12DescriptorHeapVtbl.$LAYOUT());
+            MemoryAddress getCPUDescriptorHandleForHeapStartAddr = ID3D12DescriptorHeapVtbl.GetCPUDescriptorHandleForHeapStart$get(heapDescriptorVtbl);
+            //MemoryAddress getCPUDescriptorHandleForHeapStartAddr = (MemoryAddress) MemoryHandles.asAddressVarHandle(ID3D12DescriptorHeapVtbl.$LAYOUT().varHandle(long.class, MemoryLayout.PathElement.groupElement("GetCPUDescriptorHandleForHeapStart"))).get(heapDescriptorVtbl);
+            var pRtvHandle = D3D12_CPU_DESCRIPTOR_HANDLE.allocate(scope);
+            MethodHandle MH_ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart = getInstance().downcallHandle(
+                    getCPUDescriptorHandleForHeapStartAddr,
+                    MethodType.methodType(void.class, MemoryAddress.class, MemoryAddress.class),
+                    FunctionDescriptor.ofVoid(C_POINTER, C_POINTER));
+            // Even though GetCPUDescriptorHandleForHeapStart is documented as taking no arguments (except for the
+            // this pointer), to use from C code it needs to take an additional rtvHandle argument, see, for example:
+            // https://joshstaiger.org/notes/C-Language-Problems-in-Direct3D-12-GetCPUDescriptorHandleForHeapStart.html
+            // https://github.com/curldivergence/dx12bindings/blob/841974943b7fbbd146d5372e9b496a9d72daf771/build.rs#L33
+             MH_ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart.invokeExact(
+                    pHeapDescriptor.address(), pRtvHandle.address());
+            //System.out.println("ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart result: " + descriptorHandleStart);
+            //var rtvHandle = asSegment(pRtvHandle.address(), D3D12_CPU_DESCRIPTOR_HANDLE.$LAYOUT());
+            //System.out.println("ptr: " + D3D12_CPU_DESCRIPTOR_HANDLE.ptr$get(pRtvHandle));
+            //System.out.println("rtvHandle: " + rtvHandle);
+
+            MemoryAddress getDescriptorHandleIncrementSizeAddr = ID3D12Device5Vtbl.GetDescriptorHandleIncrementSize$get(deviceVtbl);
+            MethodHandle MH_ID3D12Device_GetDescriptorHandleIncrementSize = getInstance().downcallHandle(
+                    getDescriptorHandleIncrementSizeAddr,
+                    MethodType.methodType(int.class, MemoryAddress.class, int.class),
+                    FunctionDescriptor.of(C_INT, C_POINTER, C_INT));
+            int rtvDescriptorIncrSize = (int) MH_ID3D12Device_GetDescriptorHandleIncrementSize.invoke(
+                    pDevice.address(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV());
+            System.out.println("rtvDescriptorIncrSize: " + rtvDescriptorIncrSize);
+
+            MemorySegment pSwapChain = asSegment(MemoryAccess.getAddress(ppSwapChain), IDXGISwapChain1.$LAYOUT());
+            MemorySegment swapChainVtbl = asSegment(IDXGISwapChain1.lpVtbl$get(pSwapChain), IDXGISwapChain1Vtbl.$LAYOUT());
+            MemoryAddress addrGetBuffer = IDXGISwapChain1Vtbl.GetBuffer$get(swapChainVtbl);
+            MethodHandle getBufferMethodHandle = getInstance().downcallHandle(
+                    addrGetBuffer,
+                    MethodType.methodType(int.class, MemoryAddress.class, int.class, MemoryAddress.class, MemoryAddress.class),
+                    FunctionDescriptor.of(
+                            C_INT, C_POINTER, C_INT, C_POINTER, C_POINTER));
+            var ppSurface0 = ID3D12Resource.allocatePointer(scope);
+            checkResult("IDXGISwapChain1_GetBuffer", (int) getBufferMethodHandle.invokeExact(
+                    pSwapChain.address(), 0,
+                    IID.IID_ID3D12Resource.guid.address(), ppSurface0.address()));
+            var pSurface0 = asSegment(ppSurface0.address(), ID3D12Resource.$LAYOUT());
+
+            MemoryAddress createRenderTargetViewAddr = ID3D12Device5Vtbl.CreateRenderTargetView$get(deviceVtbl);
+            MethodHandle MH_ID3D12Device_CreateRenderTargetView = getInstance().downcallHandle(
+                    createRenderTargetViewAddr,
+                    MethodType.methodType(void.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
+                    FunctionDescriptor.ofVoid(C_POINTER, C_POINTER, C_POINTER, C_POINTER));
+            // [10300] D3D12 ERROR: ID3D12Device::CreateRenderTargetView: Specified CPU descriptor handle
+            // ptr=0xFFFFFFFFDE347210 does not refer to a location in a descriptor heap.
+            // [ EXECUTION ERROR #646: INVALID_DESCRIPTOR_HANDLE]
+            MH_ID3D12Device_CreateRenderTargetView.invokeExact(pDevice.address(), pSurface0.address(), MemoryAddress.NULL, pRtvHandle.address());
+            // mDevice->lpVtbl->CreateRenderTargetView(mDevice, mRenderTarget[n], NULL, rtvHandle);
+            // rtvHandle.ptr += mrtvDescriptorIncrSize;
+            //
+            // then we "create" a render target view which binds the swap chain buffer (ID3D12Resource[n]) to the rtv handle
+            // device->CreateRenderTargetView(renderTargets[i], nullptr, rtvHandle);
+            //
+            //  we increment the rtv handle by the rtv descriptor size we got above
+            //  rtvHandle.Offset(1, rtvDescriptorSize);
+
+
             ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
             executorService.schedule(() -> {}, 1, TimeUnit.MINUTES);
         }
@@ -278,6 +368,7 @@ public class DX12 {
     public enum IID {
         // https://github.com/terrafx/terrafx.interop.windows/blob/2d5817519219dc963dbe08baa67997c2821befc4/sources/Interop/Windows/um/d3d12/Windows.cs#L180
         IID_ID3D12Debug(0x344488b7, 0x6846, 0x474b, 0xb9, 0x89, 0xf0, 0x27, 0x44, 0x82, 0x45, 0xe0),
+        IID_ID3D12Resource(0x696442be, 0xa72e, 0x4059, 0xbc, 0x79, 0x5b, 0x5c, 0x98, 0x04, 0x0f, 0xad),
         IID_IDXGIAdapter1(0x29038f61, 0x3839, 0x4626, 0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05),
         IID_IDXGIAdapter4(0x3c8d99d1, 0x4fbf, 0x4181, 0xa8, 0x2c, 0xaf, 0x66, 0xbf, 0x7b, 0xd2, 0x4e),
         IID_IDXGIFactory1(0x770aae78, 0xf26f, 0x4dba, 0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87),
@@ -286,6 +377,7 @@ public class DX12 {
         IID_ID3D12Device(0x189819f1, 0x1db6, 0x4b57, 0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7),
         IID_ID3D12Device5(0x8b4f173b, 0x2fea, 0x4b80, 0x8f, 0x58, 0x43, 0x07, 0x19, 0x1a, 0xb9, 0x5d),
         IID_ID3D12Device8(0x9218e6bb, 0xf944, 0x4f7e, 0xa7, 0x5c, 0xb1, 0xb2, 0xc7, 0xb7, 0x01, 0xf3),
+        IID_ID3D12DescriptorHeap(0x8efb471d, 0x616c, 0x4f49, 0x90, 0xf7, 0x12, 0x7b, 0xb7, 0x63, 0xfa, 0x51),
         IID_ID3D12CommandQueue(0x0ec870a6, 0x5d7e, 0x4c22, 0x8c, 0xfc, 0x5b, 0xaa, 0xe0, 0x76, 0x16, 0xed);
 
         private final MemorySegment guid;
@@ -780,5 +872,7 @@ public class DX12 {
     static final int D3D_FEATURE_LEVEL_12_0() { return (int)49152L; }
     static final int D3D_FEATURE_LEVEL_12_1() { return (int)49408L; }
     static final int DXGI_CREATE_FACTORY_DEBUG() { return (int)1L; }
+    static final int D3D12_DESCRIPTOR_HEAP_TYPE_RTV() { return (int)2L; }
+    static final int D3D12_DESCRIPTOR_HEAP_FLAG_NONE() { return (int)0L; }
 
 }
