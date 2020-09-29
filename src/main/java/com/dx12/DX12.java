@@ -10,16 +10,18 @@ import jdk.incubator.foreign.MemoryHandles;
 import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.NativeScope;
+import jdk.incubator.foreign.ValueLayout;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.invoke.VarHandle;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.ExecutorService;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static com.dx12.d3d12sdklayers_h.ID3D12Debug;
@@ -32,33 +34,20 @@ import static com.dx12.d3d12_h.D3D12_COMMAND_QUEUE_DESC;
 import static com.dx12.d3d12_h.D3D12_COMMAND_QUEUE_FLAG_NONE;
 import static com.dx12.d3d12_h.ID3D12CommandQueue;
 import static com.dx12.d3d12_h.ID3D12Resource;
-import static com.dx12.d3d12_h.ID3D12Device;
-import static com.dx12.d3d12_h.ID3D12DeviceVtbl;
 import static com.dx12.d3d12_h.ID3D12Device5;
 import static com.dx12.d3d12_h.ID3D12Device5Vtbl;
 import static com.dx12.d3d12_h.D3D12_DESCRIPTOR_HEAP_DESC;
 import static com.dx12.d3d12_h.D3D12_CPU_DESCRIPTOR_HANDLE;
 import static com.dx12.d3d12_h.ID3D12DescriptorHeapVtbl;
-import static com.dx12.dxgi_h.CreateDXGIFactory1;
 import static com.dx12.dxgi1_3_h.CreateDXGIFactory2;
 import static com.dx12.dxgi_h.DXGI_ADAPTER_DESC1;
-import static com.dx12.dxgi_h.DXGI_MODE_DESC;
-import static com.dx12.dxgi_h.DXGI_SAMPLE_DESC;
-import static com.dx12.dxgi_h.DXGI_SWAP_CHAIN_DESC;
 import static com.dx12.dxgi1_2_h.DXGI_SWAP_CHAIN_DESC1;
 import static com.dx12.dxgi1_2_h.IDXGISwapChain1;
 import static com.dx12.dxgi1_2_h.IDXGISwapChain1Vtbl;
 
-import static com.dx12.dxgi_h.IDXGIAdapter1;
-import static com.dx12.dxgi_h.IDXGIAdapter1Vtbl;
-import static com.dx12.dxgi_h.IDXGIFactory1;
 import static com.dx12.dxgi1_5_h.IDXGIFactory5;
-import static com.dx12.dxgi1_5_h.IDXGIFactory5Vtbl;
 import static com.dx12.dxgi1_6_h.IDXGIAdapter4;
 import static com.dx12.dxgi1_6_h.IDXGIAdapter4Vtbl;
-
-import static com.dx12.dxgi_h.IDXGIFactory1Vtbl;
-import static com.dx12.dxgi_h.IDXGISwapChain;
 
 import static jdk.incubator.foreign.CLinker.C_CHAR;
 import static jdk.incubator.foreign.CLinker.C_INT;
@@ -132,7 +121,10 @@ public class DX12 {
         try (NativeScope scope = NativeScope.unboundedScope()) {
             MemoryAddress hwndMain = createWindow(scope);
             var ppvDebug = ID3D12Debug.allocatePointer(scope);
-            checkResult("D3D12GetDebugInterface", D3D12GetDebugInterface(IID.IID_ID3D12Debug.guid,ppvDebug));
+            checkResult("D3D12GetDebugInterface", D3D12GetDebugInterface(IID.IID_ID3D12Debug.guid, ppvDebug));
+            // This one is trickier because it doesn't take a pp that it sets, it just does an action - need to make
+            // a different signature
+            //callMethodOnVTable(ppvDebug, ID3D12Debug.class, MethodType.methodType(int.class, MemoryAddress.class), "EnableDebugLayer");
             MemorySegment pvDebug = asSegment(MemoryAccess.getAddress(ppvDebug), ID3D12Debug.$LAYOUT());
             MemorySegment vDebugVtbl = asSegment(ID3D12Debug.lpVtbl$get(pvDebug), ID3D12DebugVtbl.$LAYOUT());
             MemoryAddress enableDebugLayerAddr = ID3D12DebugVtbl.EnableDebugLayer$get(vDebugVtbl);
@@ -146,6 +138,13 @@ public class DX12 {
             var ppDxgiFactory = IDXGIFactory5.allocatePointer(scope);
             // HRESULT = CreateDXGIFactory1(_uuid(dxgiFactory), &dxgiFactory))
             checkResult("CreateDXGIFactory2", CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG(), IID.IID_IDXGIFactory5.guid, ppDxgiFactory));
+            var result = callClassMethod(IDXGIFactory5.class, ppDxgiFactory, "EnumAdapters1",
+                    IDXGIAdapter4.class, scope,
+                    MethodType.methodType(int.class, MemoryAddress.class, int.class, MemoryAddress.class), 0);
+            var ppAdapter = result.ppOut;
+            //var pDxgiFactory = result.pThis;
+            //var dxgiFactoryVtbl = result.pThisVtbl;
+            /*
             // IDXGIFactory1*
             MemorySegment pDxgiFactory = asSegment(MemoryAccess.getAddress(ppDxgiFactory), IDXGIFactory5.$LAYOUT());
 
@@ -160,11 +159,13 @@ public class DX12 {
                     MethodType.methodType(int.class, MemoryAddress.class, int.class, MemoryAddress.class),
                     FunctionDescriptor.of(C_INT, C_POINTER, C_INT, C_POINTER));
 
-            /* [annotation][out] _COM_Outptr_  IDXGIAdapter1** */
+            // [annotation][out] _COM_Outptr_  IDXGIAdapter4**
             MemorySegment ppOut = IDXGIAdapter4.allocatePointer(scope);
             checkResult("EnumAdapters1", (int) EnumAdapters1MethodHandle.invokeExact(pDxgiFactory.address(), 0, ppOut.address()));
+
+             */
             // IDXGIAdapter1*
-            MemorySegment pAdapter = asSegment(MemoryAccess.getAddress(ppOut), IDXGIAdapter4.$LAYOUT());
+            MemorySegment pAdapter = asSegment(MemoryAccess.getAddress(ppAdapter), IDXGIAdapter4.$LAYOUT());
 
             // (This)->lpVtbl
             MemorySegment dxgiAdapterVtbl = asSegment(IDXGIAdapter4.lpVtbl$get(pAdapter), IDXGIAdapter4Vtbl.$LAYOUT());
@@ -192,39 +193,17 @@ public class DX12 {
 
             // D3D12CreateDevice(pAdapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&ppDevice))
             checkResult("D3D12CreateDevice", D3D12CreateDevice(pAdapter, D3D_FEATURE_LEVEL_11_0(), IID.IID_ID3D12Device5.guid, ppDevice));
-            // ID3D12Device*
-            MemorySegment pDevice = asSegment(MemoryAccess.getAddress(ppDevice), ID3D12Device5.$LAYOUT());
-
-            // (This)->lpVtbl
-            MemorySegment deviceVtbl = asSegment(ID3D12Device5.lpVtbl$get(pDevice), ID3D12Device5Vtbl.$LAYOUT());
-
-            // lpVtbl->CreateCommandQueue
-            MemoryAddress createCommandQueueAddr = ID3D12Device5Vtbl.CreateCommandQueue$get(deviceVtbl);
-
-            // D3D12_COMMAND_QUEUE_DESC queueDesc = {};
-            // queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-            // queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
             MemorySegment pQueueDesc = D3D12_COMMAND_QUEUE_DESC.allocate(scope);
-            // This is unnecessary:
-            // You already have a fully readable/writable segment for the struct
-            // you should only use `asSegment` if you get a MemoryAddress from the library, but you want to turn it into
-            // a memory segment with certain known size (so that you can read and write from it).
-            //MemorySegment queueDesc = asSegment(pQueueDesc.address(), D3D12_COMMAND_QUEUE_DESC.$LAYOUT());
             D3D12_COMMAND_QUEUE_DESC.Type$set(pQueueDesc, D3D12_COMMAND_LIST_TYPE_DIRECT());
             D3D12_COMMAND_QUEUE_DESC.Flags$set(pQueueDesc, D3D12_COMMAND_QUEUE_FLAG_NONE());
-
-            // link the pointer (first MemoryAddress argument is the (this) pointer (C++ => C))
-            MethodHandle MH_ID3D12Device_CreateCommandQueue = getInstance().downcallHandle(
-                    createCommandQueueAddr,
-                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
-                    FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER, C_POINTER, C_POINTER));
-
-            // ID3D12CommandQueue**
-            var ppQueue = ID3D12CommandQueue.allocatePointer(scope);
-
-            checkResult("ID3D12Device_CreateCommandQueue", (int) MH_ID3D12Device_CreateCommandQueue.invokeExact(
-                    pDevice.address(), pQueueDesc.address(),
-                    IID.IID_ID3D12CommandQueue.guid.address(), ppQueue.address()));
+            result = callClassMethod(ID3D12Device5.class, ppDevice, "CreateCommandQueue",
+                    ID3D12CommandQueue.class, scope,
+                    MethodType.methodType(
+                            int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
+                    pQueueDesc.address(), IID.IID_ID3D12CommandQueue.guid.address());
+            var pDevice = result.pThis;
+            var deviceVtbl = result.pThisVtbl;
+            var ppQueue = result.ppOut;
 
             MemorySegment pSwapChainDesc = DXGI_SWAP_CHAIN_DESC1.allocate(scope);
             DXGI_SWAP_CHAIN_DESC1.Width$set(pSwapChainDesc, 0);
@@ -240,7 +219,16 @@ public class DX12 {
             DXGI_SWAP_CHAIN_DESC1.AlphaMode$set(pSwapChainDesc, DXGI_ALPHA_MODE_UNSPECIFIED());
             DXGI_SWAP_CHAIN_DESC1.Scaling$set(pSwapChainDesc, DXGI_SCALING_STRETCH());
             DXGI_SWAP_CHAIN_DESC1.Stereo$set(pSwapChainDesc, 0);
+            MemorySegment pQueue = asSegment(MemoryAccess.getAddress(ppQueue), ID3D12CommandQueue.$LAYOUT());
 
+            // FIXME: We should be passing in dxgiFactoryVtbl instead of creating a new one? Also passing in pDxgiFactory?
+            result = callClassMethod(IDXGIFactory5.class, ppDxgiFactory, "CreateSwapChainForHwnd",
+                    IDXGISwapChain1.class, scope,
+                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class,
+                            MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
+                    pQueue.address(), hwndMain.address(), pSwapChainDesc.address(), MemoryAddress.NULL, MemoryAddress.NULL);
+            var ppSwapChain = result.ppOut;
+            /*
             MemoryAddress addrCreateSwapChainForHwnd = IDXGIFactory5Vtbl.CreateSwapChainForHwnd$get(dxgiFactoryVtbl);
             MethodHandle createSwapChainForHwndMethodHandle = getInstance().downcallHandle(
                     addrCreateSwapChainForHwnd,
@@ -257,6 +245,7 @@ public class DX12 {
                     hwndMain.address(),
                     pSwapChainDesc.address(), MemoryAddress.NULL, MemoryAddress.NULL,
                     ppSwapChain.address()));
+             */
 
             // https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/Desktop/D3D12HelloWorld/src/HelloWindow/D3D12HelloWindow.cpp
             /*
@@ -267,9 +256,17 @@ public class DX12 {
                 ThrowIfFailed(m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
              */
             MemorySegment pHeapDesc = D3D12_DESCRIPTOR_HEAP_DESC.allocate(scope);
-            D3D12_DESCRIPTOR_HEAP_DESC.NumDescriptors$set(pHeapDesc, 2);
+            D3D12_DESCRIPTOR_HEAP_DESC.NumDescriptors$set(pHeapDesc, 1);
             D3D12_DESCRIPTOR_HEAP_DESC.Type$set(pHeapDesc, D3D12_DESCRIPTOR_HEAP_TYPE_RTV());
             D3D12_DESCRIPTOR_HEAP_DESC.Flags$set(pHeapDesc, D3D12_DESCRIPTOR_HEAP_FLAG_NONE());
+            result = callClassMethod(ID3D12Device5.class, ppDevice, "CreateDescriptorHeap",
+                    ID3D12DescriptorHeap.class, scope,
+                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
+                    pHeapDesc.address(), IID.IID_ID3D12DescriptorHeap.guid.address());
+            var ppHeapDescriptor = result.ppOut;
+            var pHeapDescriptor = asSegment(MemoryAccess.getAddress(ppHeapDescriptor), ID3D12DescriptorHeap.$LAYOUT());
+
+            /*
             MemoryAddress createDescriptorHeapAddr = ID3D12Device5Vtbl.CreateDescriptorHeap$get(deviceVtbl);
             MethodHandle MH_ID3D12Device_CreateDescriptorHeap = getInstance().downcallHandle(
                     createDescriptorHeapAddr,
@@ -279,8 +276,9 @@ public class DX12 {
             checkResult("ID3D12Device_CreateDescriptorHeap", (int) MH_ID3D12Device_CreateDescriptorHeap.invokeExact(
                     pDevice.address(), pHeapDesc.address(),
                     IID.IID_ID3D12DescriptorHeap.guid.address(), ppHeapDescriptor.address()));
-            var pHeapDescriptor = asSegment(MemoryAccess.getAddress(ppHeapDescriptor), ID3D12DescriptorHeap.$LAYOUT());
 
+
+             */
             MemorySegment heapDescriptorVtbl = asSegment(ID3D12DescriptorHeap.lpVtbl$get(pHeapDescriptor), ID3D12DescriptorHeapVtbl.$LAYOUT());
             MemoryAddress getCPUDescriptorHandleForHeapStartAddr = ID3D12DescriptorHeapVtbl.GetCPUDescriptorHandleForHeapStart$get(heapDescriptorVtbl);
             //MemoryAddress getCPUDescriptorHandleForHeapStartAddr = (MemoryAddress) MemoryHandles.asAddressVarHandle(ID3D12DescriptorHeapVtbl.$LAYOUT().varHandle(long.class, MemoryLayout.PathElement.groupElement("GetCPUDescriptorHandleForHeapStart"))).get(heapDescriptorVtbl);
@@ -297,6 +295,11 @@ public class DX12 {
                     pHeapDescriptor.address(), pRtvHandle.address());
             //System.out.println("ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart result: " + descriptorHandleStart);
             //var rtvHandle = asSegment(pRtvHandle.address(), D3D12_CPU_DESCRIPTOR_HANDLE.$LAYOUT());
+            long pRtvHandlePtr = D3D12_CPU_DESCRIPTOR_HANDLE.ptr$get(pRtvHandle);
+            System.out.println("pRtvHandlePtr: " + pRtvHandlePtr);
+            //long rtvHandlePtr = D3D12_CPU_DESCRIPTOR_HANDLE.ptr$get(rtvHandle);
+            //System.out.println("rtvHandlePtr: " + rtvHandlePtr);
+
             //System.out.println("ptr: " + D3D12_CPU_DESCRIPTOR_HANDLE.ptr$get(pRtvHandle));
             //System.out.println("rtvHandle: " + rtvHandle);
 
@@ -305,9 +308,9 @@ public class DX12 {
                     getDescriptorHandleIncrementSizeAddr,
                     MethodType.methodType(int.class, MemoryAddress.class, int.class),
                     FunctionDescriptor.of(C_INT, C_POINTER, C_INT));
-            int rtvDescriptorIncrSize = (int) MH_ID3D12Device_GetDescriptorHandleIncrementSize.invoke(
+            int rtvDescriptorSize = (int) MH_ID3D12Device_GetDescriptorHandleIncrementSize.invoke(
                     pDevice.address(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV());
-            System.out.println("rtvDescriptorIncrSize: " + rtvDescriptorIncrSize);
+            System.out.println("rtvDescriptorSize: " + rtvDescriptorSize);
 
             MemorySegment pSwapChain = asSegment(MemoryAccess.getAddress(ppSwapChain), IDXGISwapChain1.$LAYOUT());
             MemorySegment swapChainVtbl = asSegment(IDXGISwapChain1.lpVtbl$get(pSwapChain), IDXGISwapChain1Vtbl.$LAYOUT());
@@ -331,6 +334,8 @@ public class DX12 {
             // [10300] D3D12 ERROR: ID3D12Device::CreateRenderTargetView: Specified CPU descriptor handle
             // ptr=0xFFFFFFFFDE347210 does not refer to a location in a descriptor heap.
             // [ EXECUTION ERROR #646: INVALID_DESCRIPTOR_HANDLE]
+            //MemorySegment rtvHandle = D3D12_CPU_DESCRIPTOR_HANDLE.allocate(scope);
+            //D3D12_CPU_DESCRIPTOR_HANDLE.ptr$set(rtvHandle, pRtvHandlePtr + rtvDescriptorSize);
             MH_ID3D12Device_CreateRenderTargetView.invokeExact(pDevice.address(), pSurface0.address(), MemoryAddress.NULL, pRtvHandle.address());
             // mDevice->lpVtbl->CreateRenderTargetView(mDevice, mRenderTarget[n], NULL, rtvHandle);
             // rtvHandle.ptr += mrtvDescriptorIncrSize;
@@ -345,6 +350,141 @@ public class DX12 {
             ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
             executorService.schedule(() -> {}, 1, TimeUnit.MINUTES);
         }
+    }
+
+    public static class VTableMethodResult {
+        MemorySegment ppThis;
+        MemorySegment pThis;
+        MemorySegment pThisVtbl;
+        MemorySegment ppOut;
+
+        public VTableMethodResult(MemorySegment ppThis, MemorySegment pThis, MemorySegment pThisVtbl, MemorySegment ppOut) {
+            this.ppThis = ppThis;
+            this.pThis = pThis;
+            this.pThisVtbl = pThisVtbl;
+            this.ppOut = ppOut;
+        }
+    }
+
+    /**
+     * This method uses reflection and thus may be too slow to use. Benchmark this.
+     *
+     * Helper method that makes it easier to call the C++ equivalent of (pThis)->someMethod(ppOut) which, because
+     * we are actually using the DirectX 12 C interface is done using vtable structs and it takes quite a lot of
+     * boilerplate.
+     * <p>
+     * Consider the following C++ code that is typical of DirectX 12:
+     *
+     * {@code
+     * IDXGIAdapter1 * pAdapter;
+     * pFactory->EnumAdapters1(0, &pAdapter)
+     * }
+     *
+     * This type of class method structure is emulated in C via the following API:
+     *
+     * {@code
+     * 	HRESULT ( STDMETHODCALLTYPE *EnumAdapters1 )(
+     * 		IDXGIFactory1 * This,
+     * 		// [in] UINT Adapter,
+     *      // [out] IDXGIAdapter1 **ppAdapter);
+     * }
+     *
+     * Which must be called like so:
+     *
+     * {@code factory->lpVtbl->EnumAdapters1(factory, 0, &adapter)}
+     *
+     * To replicate this in Panama requires quite a bit of fiddling, so this method would be used thusly:
+     *
+     * {@code
+     * var ppDxgiFactory = IDXGIFactory5.allocatePointer(scope);
+     * var result = callMethodOnVTable(scope, ppDxgiFactory, IDXGIFactory5.class, IDXGIAdapter4.class,
+     *      MethodType.methodType(int.class, MemoryAddress.class, int.class, MemoryAddress.class), "EnumAdapters1", 0);
+     * }
+     */
+    private static <T, V> VTableMethodResult callClassMethod(Class<T> pThisType, MemorySegment ppThis,
+                                                             String methodName,
+                                                             Class<V> pOutType, NativeScope scope,
+                                                             MethodType methodType,
+                                                             Object... inArgs) throws IllegalArgumentException {
+        try {
+            MemorySegment pThis = asSegment(MemoryAccess.getAddress(ppThis),
+                    (MemoryLayout) pThisType.getMethod("$LAYOUT").invoke(null));
+            Class<?> vtblClazz = Class.forName(pThisType.getName() + "Vtbl");
+            MemorySegment pVtbl = asSegment((MemoryAddress) pThisType.getMethod("lpVtbl$get", MemorySegment.class)
+                            .invoke(null, pThis),
+                    (MemoryLayout) vtblClazz.getMethod("$LAYOUT").invoke(null));
+            MemoryAddress methodAddr = (MemoryAddress) vtblClazz.getMethod(methodName + "$get", MemorySegment.class)
+                    .invoke(null, pVtbl);
+            FunctionDescriptor functionDescriptor = methodType.returnType().equals(void.class) ?
+                    FunctionDescriptor.ofVoid(
+                            methodType.parameterList().stream()
+                                    .map(DX12::getCType)
+                                    .collect(Collectors.toList())
+                                    .toArray(new ValueLayout[]{}))
+                    : FunctionDescriptor.of(
+                    getCType(methodType.returnType()),
+                    methodType.parameterList().stream()
+                            .map(DX12::getCType)
+                            .collect(Collectors.toList())
+                            .toArray(new ValueLayout[]{}));
+            MethodHandle methodHandle = getInstance().downcallHandle(methodAddr, methodType, functionDescriptor);
+            MemorySegment ppOut = null;
+            if (pOutType != null) {
+                ppOut = (MemorySegment) pOutType.getMethod("allocatePointer", NativeScope.class).invoke(null, scope);
+            }
+            // This is super gross but can't think of a better way at the moment...
+            if (inArgs.length == 0) {
+                if (ppOut != null) {
+                    checkResult(methodName, (int) methodHandle.invokeExact(pThis.address(), ppOut.address()));
+                } else {
+                    checkResult(methodName, (int) methodHandle.invoke(pThis.address()));
+                }
+            } else if (inArgs.length == 1) {
+                if (ppOut != null) {
+                    checkResult(methodName, (int) methodHandle.invoke(pThis.address(), inArgs[0], ppOut.address()));
+                } else {
+                    checkResult(methodName, (int) methodHandle.invoke(pThis.address(), inArgs[0]));
+                }
+            } else if (inArgs.length == 2) {
+                if (ppOut != null) {
+                    checkResult(methodName, (int) methodHandle.invoke(pThis.address(), inArgs[0], inArgs[1], ppOut.address()));
+                } else {
+                    checkResult(methodName, (int) methodHandle.invoke(pThis.address(), inArgs[0], inArgs[1]));
+                }
+            } else if (inArgs.length == 3) {
+                if (ppOut != null) {
+                    checkResult(methodName, (int) methodHandle.invoke(pThis.address(), inArgs[0], inArgs[1], inArgs[2], ppOut.address()));
+                } else {
+                    checkResult(methodName, (int) methodHandle.invoke(pThis.address(), inArgs[0], inArgs[1], inArgs[2]));
+                }
+            } else if (inArgs.length == 4) {
+                if (ppOut != null) {
+                    checkResult(methodName, (int) methodHandle.invoke(pThis.address(), inArgs[0], inArgs[1], inArgs[2], inArgs[3], ppOut.address()));
+                } else {
+                    checkResult(methodName, (int) methodHandle.invoke(pThis.address(), inArgs[0], inArgs[1], inArgs[2], inArgs[3]));
+                }
+            } else if (inArgs.length == 5) {
+                if (ppOut != null) {
+                    checkResult(methodName, (int) methodHandle.invoke(pThis.address(), inArgs[0], inArgs[1], inArgs[2], inArgs[3], inArgs[4], ppOut.address()));
+                } else {
+                    checkResult(methodName, (int) methodHandle.invoke(pThis.address(), inArgs[0], inArgs[1], inArgs[2], inArgs[3], inArgs[4]));
+                }
+            } else {
+                throw new IllegalArgumentException("Cannot handle arguments of length \"" + inArgs.length + "\".");
+            }
+            return new VTableMethodResult(ppThis, pThis, pVtbl, ppOut);
+        } catch (Throwable ex) {
+            ex.printStackTrace();
+            throw new IllegalArgumentException(ex);
+        }
+    }
+
+    private static final Map<Class<?>, ValueLayout> TYPES = Map.of(int.class, C_INT, MemoryAddress.class, C_POINTER);
+    private static <T> ValueLayout getCType(Class<T> clazz) {
+        if (!TYPES.containsKey(clazz)) {
+            throw new IllegalArgumentException("Cannot get CTYPE of class \"" + clazz + "\".");
+        }
+        return TYPES.get(clazz);
     }
 
     public static MemorySegment asSegment(MemoryAddress addr, MemoryLayout layout) {
