@@ -62,6 +62,10 @@ import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
  * https://github.com/Meith/DX12/tree/master/DX12
  * <p>
  * https://cr.openjdk.java.net/~mcimadamore/panama/ffi.html#appendix-full-source-code
+ * <p>
+ * https://github.com/CRYTEK/CRYENGINE/blob/release/Code/CryEngine/RenderDll/XRenderD3D9/DX12/API/DX12Device.cpp
+ * <p>
+ * https://chromium.googlesource.com/chromium/src/+/master/base/win/windows_version.cc
  */
 public class DX12 {
     public static MemoryAddress createWindow(NativeScope scope) {
@@ -193,7 +197,7 @@ public class DX12 {
             //MemorySegment pDevice = asSegment(MemoryAccess.getAddress(ppDevice), ID3D12Device5.$LAYOUT());
             // MemorySegment deviceVtbl = asSegment(ID3D12Device5.lpVtbl$get(pDevice), ID3D12Device5Vtbl.$LAYOUT());
             // MemoryAddress createCommandQueueAddr = ID3D12Device5Vtbl.CreateCommandQueue$get(deviceVtbl);
-            checkResult("D3D12CreateDevice", D3D12CreateDevice(pAdapter, D3D_FEATURE_LEVEL_11_0(), IID.IID_ID3D12Device5.guid, ppDevice));
+            checkResult("D3D12CreateDevice", D3D12CreateDevice(pAdapter, D3D_FEATURE_LEVEL_11_1(), IID.IID_ID3D12Device5.guid, ppDevice));
             MemorySegment pQueueDesc = D3D12_COMMAND_QUEUE_DESC.allocate(scope);
             D3D12_COMMAND_QUEUE_DESC.Type$set(pQueueDesc, D3D12_COMMAND_LIST_TYPE_DIRECT());
             D3D12_COMMAND_QUEUE_DESC.Flags$set(pQueueDesc, D3D12_COMMAND_QUEUE_FLAG_NONE());
@@ -279,21 +283,8 @@ public class DX12 {
             var ppHeapDescriptor = result.ppOut;
             var pHeapDescriptor = asSegment(MemoryAccess.getAddress(ppHeapDescriptor), ID3D12DescriptorHeap.$LAYOUT());
 
-            /*
-            MemoryAddress createDescriptorHeapAddr = ID3D12Device5Vtbl.CreateDescriptorHeap$get(deviceVtbl);
-            MethodHandle MH_ID3D12Device_CreateDescriptorHeap = getInstance().downcallHandle(
-                    createDescriptorHeapAddr,
-                    MethodType.methodType(int.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
-                    FunctionDescriptor.of(C_INT, C_POINTER, C_POINTER, C_POINTER, C_POINTER));
-            var ppHeapDescriptor = ID3D12DescriptorHeap.allocatePointer(scope);
-            checkResult("ID3D12Device_CreateDescriptorHeap", (int) MH_ID3D12Device_CreateDescriptorHeap.invokeExact(
-                    pDevice.address(), pHeapDesc.address(),
-                    IID.IID_ID3D12DescriptorHeap.guid.address(), ppHeapDescriptor.address()));
-             */
-
             MemorySegment heapDescriptorVtbl = asSegment(ID3D12DescriptorHeap.lpVtbl$get(pHeapDescriptor), ID3D12DescriptorHeapVtbl.$LAYOUT());
             MemoryAddress getCPUDescriptorHandleForHeapStartAddr = ID3D12DescriptorHeapVtbl.GetCPUDescriptorHandleForHeapStart$get(heapDescriptorVtbl);
-            //MemoryAddress getCPUDescriptorHandleForHeapStartAddr = (MemoryAddress) MemoryHandles.asAddressVarHandle(ID3D12DescriptorHeapVtbl.$LAYOUT().varHandle(long.class, MemoryLayout.PathElement.groupElement("GetCPUDescriptorHandleForHeapStart"))).get(heapDescriptorVtbl);
             var pRtvHandle = D3D12_CPU_DESCRIPTOR_HANDLE.allocate(scope);
             MethodHandle ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart = getInstance().downcallHandle(
                     getCPUDescriptorHandleForHeapStartAddr,
@@ -305,25 +296,18 @@ public class DX12 {
             // https://github.com/curldivergence/dx12bindings/blob/841974943b7fbbd146d5372e9b496a9d72daf771/build.rs#L33
             ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart.invokeExact(
                     pHeapDescriptor.address(), pRtvHandle.address());
-            //System.out.println("ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart result: " + descriptorHandleStart);
-            //var rtvHandle = asSegment(pRtvHandle.address(), D3D12_CPU_DESCRIPTOR_HANDLE.$LAYOUT());
             long pRtvHandlePtr = D3D12_CPU_DESCRIPTOR_HANDLE.ptr$get(pRtvHandle);
             System.out.println("pRtvHandlePtr: " + pRtvHandlePtr);
             System.out.println("pRtvHandlePtr: " + MemoryAddress.ofLong(pRtvHandlePtr));
-            //long rtvHandlePtr = D3D12_CPU_DESCRIPTOR_HANDLE.ptr$get(rtvHandle);
-            //System.out.println("rtvHandlePtr: " + rtvHandlePtr);
-
-            //System.out.println("ptr: " + D3D12_CPU_DESCRIPTOR_HANDLE.ptr$get(pRtvHandle));
-            //System.out.println("rtvHandle: " + rtvHandle);
 
             MemoryAddress getDescriptorHandleIncrementSizeAddr = ID3D12Device5Vtbl.GetDescriptorHandleIncrementSize$get(deviceVtbl);
             MethodHandle ID3D12Device_GetDescriptorHandleIncrementSize = getInstance().downcallHandle(
                     getDescriptorHandleIncrementSizeAddr,
                     MethodType.methodType(int.class, MemoryAddress.class, int.class),
                     FunctionDescriptor.of(C_INT, C_POINTER, C_INT));
-            int rtvDescriptorSize = (int) ID3D12Device_GetDescriptorHandleIncrementSize.invoke(
+            int rtvDescriptorIncrementSize = (int) ID3D12Device_GetDescriptorHandleIncrementSize.invoke(
                     pDevice.address(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV());
-            System.out.println("rtvDescriptorSize: " + rtvDescriptorSize);
+            System.out.println("rtvDescriptorIncrementSize: " + rtvDescriptorIncrementSize);
 
             MemorySegment swapChainVtbl = asSegment(IDXGISwapChain1.lpVtbl$get(pSwapChain), IDXGISwapChain1Vtbl.$LAYOUT());
             MemoryAddress IDXGISwapChain1_GetBuffer_Addr = IDXGISwapChain1Vtbl.GetBuffer$get(swapChainVtbl);
@@ -343,20 +327,17 @@ public class DX12 {
                     createRenderTargetViewAddr,
                     MethodType.methodType(void.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
                     FunctionDescriptor.ofVoid(C_POINTER, C_POINTER, C_POINTER, C_POINTER));
-            // [10300] D3D12 ERROR: ID3D12Device::CreateRenderTargetView: Specified CPU descriptor handle
-            // ptr=0xFFFFFFFFDE347210 does not refer to a location in a descriptor heap.
-            // [ EXECUTION ERROR #646: INVALID_DESCRIPTOR_HANDLE]
-            //MemorySegment rtvHandle = D3D12_CPU_DESCRIPTOR_HANDLE.allocate(scope);
-            //D3D12_CPU_DESCRIPTOR_HANDLE.ptr$set(rtvHandle, pRtvHandlePtr + rtvDescriptorSize);
-            ID3D12Device_CreateRenderTargetView.invokeExact(pDevice.address(), pSurface0.address(), MemoryAddress.NULL, pRtvHandle.address());
+            ID3D12Device_CreateRenderTargetView.invokeExact(pDevice.address(), pSurface0.address(), MemoryAddress.NULL, pRtvHandle);
+
             // mDevice->lpVtbl->CreateRenderTargetView(mDevice, mRenderTarget[n], NULL, rtvHandle);
             // rtvHandle.ptr += mrtvDescriptorIncrSize;
+            // D3D12_CPU_DESCRIPTOR_HANDLE.ptr$set(rtvHandle, pRtvHandlePtr + rtvDescriptorIncrementSize);
             //
             // then we "create" a render target view which binds the swap chain buffer (ID3D12Resource[n]) to the rtv handle
             // device->CreateRenderTargetView(renderTargets[i], nullptr, rtvHandle);
             //
             //  we increment the rtv handle by the rtv descriptor size we got above
-            //  rtvHandle.Offset(1, rtvDescriptorSize);
+            //  rtvHandle.Offset(1, rtvDescriptorIncrementSize);
 
 
             ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
