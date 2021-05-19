@@ -390,7 +390,7 @@ public class DX12 {
      *
      * {@code
      * var ppDxgiFactory = IDXGIFactory5.allocatePointer(scope);
-     * var result = callMethodOnVTable(scope, ppDxgiFactory, IDXGIFactory5.class, IDXGIAdapter4.class,
+     * var result = callClassMethod(scope, ppDxgiFactory, IDXGIFactory5.class, IDXGIAdapter4.class,
      *      MethodType.methodType(int.class, MemoryAddress.class, int.class, MemoryAddress.class), "EnumAdapters1", 0);
      * }
      */

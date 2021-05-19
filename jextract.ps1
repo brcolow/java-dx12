@@ -1,4 +1,5 @@
-$jdk = "C:\Users\mikee\dev\panama-foreign\build\windows-x86_64-server-release\jdk"
+#$jdk = "C:\Users\mikee\dev\panama-foreign\build\windows-x86_64-server-release\jdk"
+$jdk = "C:\Program Files\Java\jdk-17"
 New-Alias -Name jextract -Value "$jdk\bin\jextract.exe" -Force
 $I = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.19041.0"
 # This does nothing because Windows.h is purely includes and we are using --filter, but according to Wikipedia:
