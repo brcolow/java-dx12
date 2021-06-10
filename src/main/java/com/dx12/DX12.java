@@ -283,6 +283,17 @@ public class DX12 {
             var ppHeapDescriptor = result.ppOut;
             var pHeapDescriptor = asSegment(MemoryAccess.getAddress(ppHeapDescriptor), ID3D12DescriptorHeap.$LAYOUT());
 
+            // UINT rtvDescriptorIncrementSize = mDevice->lpVtbl->GetDescriptorHandleIncrementSize(pDevice, D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+            MemoryAddress getDescriptorHandleIncrementSizeAddr = ID3D12Device5Vtbl.GetDescriptorHandleIncrementSize$get(deviceVtbl);
+            MethodHandle ID3D12Device_GetDescriptorHandleIncrementSize = getInstance().downcallHandle(
+                    getDescriptorHandleIncrementSizeAddr,
+                    MethodType.methodType(int.class, MemoryAddress.class, int.class),
+                    FunctionDescriptor.of(C_INT, C_POINTER, C_INT));
+            int rtvDescriptorIncrementSize = (int) ID3D12Device_GetDescriptorHandleIncrementSize.invoke(
+                    pDevice.address(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV());
+            System.out.println("rtvDescriptorIncrementSize: " + rtvDescriptorIncrementSize);
+
+            // ((void(__stdcall*)(ID3D12DescriptorHeap*, D3D12_CPU_DESCRIPTOR_HANDLE*)) mDescriptorHeap->lpVtbl->GetCPUDescriptorHandleForHeapStart)(pHeapDescriptor, &pRtvHandle);
             MemorySegment heapDescriptorVtbl = asSegment(ID3D12DescriptorHeap.lpVtbl$get(pHeapDescriptor), ID3D12DescriptorHeapVtbl.$LAYOUT());
             MemoryAddress getCPUDescriptorHandleForHeapStartAddr = ID3D12DescriptorHeapVtbl.GetCPUDescriptorHandleForHeapStart$get(heapDescriptorVtbl);
             var pRtvHandle = D3D12_CPU_DESCRIPTOR_HANDLE.allocate(scope);
@@ -300,15 +311,7 @@ public class DX12 {
             System.out.println("pRtvHandlePtr: " + pRtvHandlePtr);
             System.out.println("pRtvHandlePtr: " + MemoryAddress.ofLong(pRtvHandlePtr));
 
-            MemoryAddress getDescriptorHandleIncrementSizeAddr = ID3D12Device5Vtbl.GetDescriptorHandleIncrementSize$get(deviceVtbl);
-            MethodHandle ID3D12Device_GetDescriptorHandleIncrementSize = getInstance().downcallHandle(
-                    getDescriptorHandleIncrementSizeAddr,
-                    MethodType.methodType(int.class, MemoryAddress.class, int.class),
-                    FunctionDescriptor.of(C_INT, C_POINTER, C_INT));
-            int rtvDescriptorIncrementSize = (int) ID3D12Device_GetDescriptorHandleIncrementSize.invoke(
-                    pDevice.address(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV());
-            System.out.println("rtvDescriptorIncrementSize: " + rtvDescriptorIncrementSize);
-
+            // mSwapChain->lpVtbl->GetBuffer(mSwapChain, n, (REFIID)&IID_ID3D12Resource, (LPVOID*)(&mRenderTarget[n]))); //IID_PPV_ARGS(&m_renderTargets[n])));
             MemorySegment swapChainVtbl = asSegment(IDXGISwapChain1.lpVtbl$get(pSwapChain), IDXGISwapChain1Vtbl.$LAYOUT());
             MemoryAddress IDXGISwapChain1_GetBuffer_Addr = IDXGISwapChain1Vtbl.GetBuffer$get(swapChainVtbl);
             MethodHandle IDXGISwapChain1_GetBuffer = getInstance().downcallHandle(
@@ -327,7 +330,12 @@ public class DX12 {
                     createRenderTargetViewAddr,
                     MethodType.methodType(void.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class, MemoryAddress.class),
                     FunctionDescriptor.ofVoid(C_POINTER, C_POINTER, C_POINTER, C_POINTER));
-            ID3D12Device_CreateRenderTargetView.invokeExact(pDevice.address(), pSurface0.address(), MemoryAddress.NULL, pRtvHandle);
+
+            // This line is causing a crash C  [D3D12SDKLayers.dll+0x1e6f9]
+            // mDevice->lpVtbl->CreateRenderTargetView(mDevice, mRenderTarget[n], NULL, rtvHandle);
+            // A null pDesc is used to initialize a default descriptor, if possible.
+            // https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-createrendertargetview
+            ID3D12Device_CreateRenderTargetView.invokeExact(pDevice.address(), ppSurface0.address(), MemoryAddress.NULL, pRtvHandle.address());
 
             // mDevice->lpVtbl->CreateRenderTargetView(mDevice, mRenderTarget[n], NULL, rtvHandle);
             // rtvHandle.ptr += mrtvDescriptorIncrSize;
