@@ -52,7 +52,7 @@ import static com.dx12.dxgi1_6_h.IDXGIAdapter4Vtbl;
 import static jdk.incubator.foreign.CLinker.C_CHAR;
 import static jdk.incubator.foreign.CLinker.C_INT;
 import static jdk.incubator.foreign.CLinker.C_LONG;
-import static jdk.incubator.foreign.CLinker.C_LONGLONG;
+import static jdk.incubator.foreign.CLinker.C_LONG_LONG;
 import static jdk.incubator.foreign.CLinker.C_POINTER;
 import static jdk.incubator.foreign.CLinker.C_SHORT;
 import static jdk.incubator.foreign.CLinker.getInstance;
@@ -834,11 +834,11 @@ public class DX12 {
         return (int) 2L;
     }
 
-    static final FunctionDescriptor WindowProc = FunctionDescriptor.of(C_LONGLONG,
+    static final FunctionDescriptor WindowProc = FunctionDescriptor.of(C_LONG_LONG,
             C_POINTER,
             C_INT,
-            C_LONGLONG,
-            C_LONGLONG
+            C_LONG_LONG,
+            C_LONG_LONG
     );
     static final FunctionDescriptor LoadCursorW$FUNC_ = FunctionDescriptor.of(C_POINTER,
             C_POINTER,
