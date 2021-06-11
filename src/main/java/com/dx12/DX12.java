@@ -9,8 +9,9 @@ import jdk.incubator.foreign.MemoryAddress;
 import jdk.incubator.foreign.MemoryHandles;
 import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemorySegment;
-import jdk.incubator.foreign.NativeScope;
 import jdk.incubator.foreign.ValueLayout;
+import jdk.incubator.foreign.ResourceScope;
+import jdk.incubator.foreign.SegmentAllocator;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -68,6 +69,39 @@ import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
  * https://chromium.googlesource.com/chromium/src/+/master/base/win/windows_version.cc
  */
 public class DX12 {
+    public static class NativeScope implements SegmentAllocator, AutoCloseable {
+        final ResourceScope resourceScope;
+        final ResourceScope.Handle scopeHandle;
+        final SegmentAllocator allocator;
+
+        long allocatedBytes = 0;
+
+        public NativeScope() {
+            this.resourceScope = ResourceScope.newConfinedScope();
+            this.scopeHandle = resourceScope.acquire();
+            this.allocator = SegmentAllocator.arenaAllocator(resourceScope);
+        }
+
+        @Override
+        public MemorySegment allocate(long bytesSize, long bytesAlignment) {
+            allocatedBytes += bytesSize;
+            return allocator.allocate(bytesSize, bytesAlignment);
+        }
+
+        public ResourceScope scope() {
+            return resourceScope;
+        }
+
+        public long allocatedBytes() {
+            return allocatedBytes;
+        }
+
+        @Override
+        public void close() {
+            resourceScope.release(scopeHandle);
+            resourceScope.close();
+        }
+    }
     public static MemoryAddress createWindow(NativeScope scope) {
         MemorySegment pWindowClass = tagWNDCLASSEXW.allocate(scope);
         tagWNDCLASSEXW.cbSize$set(pWindowClass, (int) tagWNDCLASSEXW.sizeof());
@@ -117,10 +151,7 @@ public class DX12 {
         //  https://docs.microsoft.com/en-us/cpp/build/reference/manifestinput-specify-manifest-input?view=vs-2019
         //  https://docs.microsoft.com/en-us/windows/win32/w8cookbook/application--executable--manifest
         //  https://github.com/rust-lang/rfcs/issues/721
-        LibraryLookup user32 = LibraryLookup.ofLibrary("user32");
-        LibraryLookup d3d12 = LibraryLookup.ofLibrary("D3D12");
-        LibraryLookup dxgi = LibraryLookup.ofLibrary("dxgi");
-        try (NativeScope scope = NativeScope.unboundedScope()) {
+        try (NativeScope scope = new NativeScope()) {
             MemoryAddress hwndMain = createWindow(scope);
             var ppvDebug = ID3D12Debug.allocatePointer(scope);
             checkResult("D3D12GetDebugInterface", D3D12GetDebugInterface(IID.IID_ID3D12Debug.guid, ppvDebug));
